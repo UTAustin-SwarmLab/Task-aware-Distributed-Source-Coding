@@ -1,0 +1,533 @@
+import torch
+import torch.linalg
+import numpy as np
+from torch import nn
+import torch.nn.functional as F
+from collections import OrderedDict
+
+# from gym_fetch.utils import PSNR
+
+### Calculate the cross correlation between two signals
+def crossCorZ(z1, z2):
+    # Cross correlation between two z_means 
+    # Input: two z_means 
+    # shape: ( (prev_bat + 1) * batch_size, z_dim)  * 2. [steps * batch, zdim] [0] is the current batch
+    # Output: cross correlation between two z_means: scalar 
+    
+    ### normalise z1 and z2
+    z1_norm = (z1 - z1.mean(dim=0))
+    z2_norm = (z2 - z2.mean(dim=0))
+    cross_cov = torch.matmul(z1_norm.transpose(0, 1), z2_norm)
+    cross_cov = torch.mean(cross_cov)
+    cov1 = torch.matmul(z1_norm.transpose(0, 1), z1_norm)
+    cov1 = torch.mean(cov1)
+    cov2 = torch.matmul(z2_norm.transpose(0, 1), z2_norm)
+    cov2 = torch.mean(cov2)
+
+    z_cross_loss = cross_cov / torch.sqrt(cov1 * cov2)
+    
+    return torch.abs(z_cross_loss)
+
+
+def PSNR(img1, img2, PIXEL_MAX = 255.0):
+    mse = torch.mean((img1 - img2) ** 2)
+    if mse == 0:
+        print("You are comparing two same images")
+        return 100
+    else:
+        return 20 * torch.log10(PIXEL_MAX / torch.sqrt(mse))
+
+
+def off_diagonal(x):
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
+
+
+class ResidualBlock(nn.Module):
+    """
+    https://github.com/hhb072/IntroVAE
+    Difference: self.bn2 on output and not on (output + identity)
+    "if inc is not outc" -> "if inc != outc"
+    """
+
+    def __init__(self, inc=64, outc=64, groups=1, scale=1.0):
+        super(ResidualBlock, self).__init__()
+
+        midc = int(outc * scale)
+
+        if inc != outc:
+            self.conv_expand = nn.Conv2d(in_channels=inc, out_channels=outc, kernel_size=1, stride=1, padding=0,
+                                         groups=1, bias=False)
+        else:
+            self.conv_expand = None
+
+        self.conv1 = nn.Conv2d(in_channels=inc, out_channels=midc, kernel_size=3, stride=1, padding=1, groups=groups,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(midc)
+        self.relu1 = nn.LeakyReLU(0.2, inplace=True)
+        self.conv2 = nn.Conv2d(in_channels=midc, out_channels=outc, kernel_size=3, stride=1, padding=1, groups=groups,
+                               bias=False)
+        self.bn2 = nn.BatchNorm2d(outc)
+        self.relu2 = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x):
+        if self.conv_expand is not None:
+            identity_data = self.conv_expand(x)
+        else:
+            identity_data = x
+
+        output = self.relu1(self.bn1(self.conv1(x)))
+        output = self.conv2(output)
+        output = self.bn2(output)
+        output = self.relu2(torch.add(output, identity_data))
+        return output
+
+
+class Encoder(nn.Module):
+    def __init__(self, arch="dist", cdim=3, zdim=512, channels=(64, 128, 256), image_size=256, conditional=False,
+                 cond_dim=10):
+        super(Encoder, self).__init__()
+        self.zdim = zdim
+        self.cdim = cdim
+        self.image_size = image_size
+        self.conditional = conditional
+        self.cond_dim = cond_dim
+        self.arch = arch
+        cc = channels[0]
+        self.main = nn.Sequential(
+            nn.Conv2d(cdim, cc, 5, 1, 2, bias=False),
+            nn.BatchNorm2d(cc),
+            nn.LeakyReLU(0.2),
+            nn.AvgPool2d(2),
+        )
+
+        sz = image_size # // 2
+        for ch in channels[1:]:
+            self.main.add_module('res_in_{}'.format(sz), ResidualBlock(cc, ch, scale=1.0))
+            self.main.add_module('down_to_{}'.format(sz // 2), nn.AvgPool2d(2))
+            cc, sz = ch, sz // 2
+
+        self.main.add_module('res_in_{}'.format(sz), ResidualBlock(cc, cc, scale=1.0))
+        self.conv_output_size = self.calc_conv_output_size()
+        num_fc_features = torch.zeros(self.conv_output_size).view(-1).shape[0]
+        # print("conv shape: ", self.conv_output_size)
+        # print("num fc features: ", num_fc_features)
+        if self.conditional:
+            self.fc = nn.Linear(num_fc_features + self.cond_dim, 2 * zdim)
+        else:
+            self.fc = nn.Linear(num_fc_features, 2 * zdim)
+
+    def calc_conv_output_size(self):
+        if (self.arch == "dist"):
+            ###########################
+            dim_2 = self.image_size # int(self.image_size / 2)
+        else:
+            dim_2 = self.image_size
+        dummy_input = torch.zeros(1, self.cdim, dim_2, self.image_size)
+        dummy_input = self.main(dummy_input)
+        return dummy_input[0].shape
+
+    def forward(self, x, o_cond=None):
+        y = self.main(x).view(x.size(0), -1)
+        if self.conditional and o_cond is not None:
+            y = torch.cat([y, o_cond], dim=1)
+        y = self.fc(y)
+        mu, logvar = y.chunk(2, dim=1)
+        return mu, logvar
+
+
+class Decoder(nn.Module):
+    def __init__(self, cdim=3, zdim=512, channels=(64, 128, 256), image_size=256, conditional=False,
+                 conv_input_size=None, cond_dim=10):
+        super(Decoder, self).__init__()
+        self.cdim = cdim
+        self.image_size = image_size
+        self.conditional = conditional
+        cc = channels[-1]
+        self.conv_input_size = conv_input_size
+        if conv_input_size is None:
+            num_fc_features = cc * 4 * 4
+        else:
+            num_fc_features = torch.zeros(self.conv_input_size).view(-1).shape[0]
+        self.cond_dim = cond_dim
+        if self.conditional:
+            self.fc = nn.Sequential(
+                nn.Linear(zdim + self.cond_dim, num_fc_features),
+                nn.ReLU(True),
+            )
+        else:
+            self.fc = nn.Sequential(
+                nn.Linear(zdim, num_fc_features),
+                nn.ReLU(True),
+            )
+
+        sz = 4
+
+        self.main = nn.Sequential()
+        for ch in channels[::-1]:
+            self.main.add_module('res_in_{}'.format(sz), ResidualBlock(cc, ch, scale=1.0))
+            self.main.add_module('up_to_{}'.format(sz * 2), nn.Upsample(scale_factor=2, mode='nearest'))
+            cc, sz = ch, sz * 2
+
+        self.main.add_module('res_in_{}'.format(sz), ResidualBlock(cc, cc, scale=1.0))
+        self.main.add_module('predict', nn.Conv2d(cc, cdim, 5, 1, 2))
+
+    def forward(self, z, y_cond=None):
+        z = z.view(z.size(0), -1)
+        if self.conditional and y_cond is not None:
+            y_cond = y_cond.view(y_cond.size(0), -1)
+            z = torch.cat([z, y_cond], dim=1)
+        y = self.fc(z)
+        y = y.view(z.size(0), *self.conv_input_size)
+        y = self.main(y)
+        return y
+
+
+class SoftIntroVAE(nn.Module):
+    def __init__(self, arch="dist", cdim=3, zdim=512, channels=(64, 128, 256, 512), image_size=256, conditional=False,
+                 cond_dim=10, norm_sample=False):
+        super(SoftIntroVAE, self).__init__()
+
+        self.zdim = zdim
+        zdim_dist = int(zdim/2)
+        self.zdim_dist = zdim_dist
+        self.conditional = conditional
+        self.cond_dim = cond_dim
+        self.arch = arch
+        self.norm_sample = norm_sample
+        if (self.arch == "dist"):
+            self.encoder_1 = Encoder(arch, cdim//2, zdim_dist, channels, image_size, conditional=conditional, cond_dim=cond_dim)
+            self.encoder_2 = Encoder(arch, cdim//2, zdim_dist, channels, image_size, conditional=conditional, cond_dim=cond_dim)
+        else:
+            self.encoder = Encoder(arch, cdim, zdim, channels, image_size, conditional=conditional, cond_dim=cond_dim)
+        
+        if (self.arch == "dist"):
+            enc_out_size = self.encoder_1.conv_output_size
+            enc_out_size_tuple = [enc_out_size[0], enc_out_size[1], enc_out_size[2]]
+        else:
+            enc_out_size_tuple = self.encoder.conv_output_size
+        
+        self.decoder = Decoder(cdim, zdim, channels, image_size, conditional=conditional,
+                               conv_input_size=enc_out_size_tuple, cond_dim=cond_dim)
+
+    def forward(self, x, o_cond=None):
+        if self.conditional and o_cond is not None:
+            # split image inside encoder
+            mu, logvar = self.encode(x, o_cond=o_cond)
+        else:
+            mu, logvar = self.encode(x)
+
+        z1_mean, z1_log_std = mu[:, :self.zdim_dist], logvar[:, :self.zdim_dist]
+        z2_mean, z2_log_std = mu[:, self.zdim_dist:], logvar[:, self.zdim_dist:]
+
+        ref1_mean = torch.zeros(z1_mean.shape[1], device=z1_mean.device).unsqueeze(0)
+        ref1_cov = torch.eye(z1_mean.shape[1], device=z1_mean.device).unsqueeze(0)
+        ref1_dist = torch.distributions.MultivariateNormal(ref1_mean, covariance_matrix=ref1_cov)
+        ref2_mean = torch.zeros(z2_mean.shape[1], device=z2_mean.device).unsqueeze(0)
+        ref2_cov = torch.eye(z2_mean.shape[1], device=z2_mean.device).unsqueeze(0)
+        ref2_dist = torch.distributions.MultivariateNormal(ref2_mean, covariance_matrix=ref2_cov)
+
+        z1_cov = torch.diag_embed(torch.exp(z1_log_std * 2)+ 1e-10)
+        z1_dist = torch.distributions.MultivariateNormal(z1_mean, covariance_matrix=z1_cov)
+        z2_cov = torch.diag_embed(torch.exp(z2_log_std * 2)+ 1e-10)
+        z2_dist = torch.distributions.MultivariateNormal(z2_mean, covariance_matrix=z2_cov)
+
+        if self.norm_sample:
+            z1_sample = z1_dist.rsample()
+            z2_sample = z2_dist.rsample()      
+            z_sample = torch.cat((z1_sample, z2_sample), dim=1)
+            obs_dec = self.decode(z_sample)
+                
+            ### Calculate the cross covariances
+            ### only backprop through the second encoder
+            z1_norm = (z1_sample - z1_sample.mean(dim=0)).detach()
+            z2_norm = (z2_sample - z2_sample.mean(dim=0))
+            cross_cov = torch.matmul(z1_norm.transpose(0, 1), z2_norm)
+            cross_cov = torch.mean(cross_cov)
+            cov1 = torch.matmul(z1_norm.transpose(0, 1), z1_norm)
+            cov1 = torch.mean(cov1)
+            cov2 = torch.matmul(z2_norm.transpose(0, 1), z2_norm)
+            cov2 = torch.mean(cov2)
+            z_cross_loss = cross_cov / torch.sqrt(cov1 * cov2)
+            z_cross_loss = torch.norm(z_cross_loss, p='fro', dim=(0))
+
+            ### Omits the const term in log. Using MSE, can be derived from a weighted KL.
+            obs = x # torch.cat((x1, x2), dim=1)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            ref_kl1 = torch.distributions.kl_divergence(z1_dist, ref1_dist)
+            ref_kl2 = torch.distributions.kl_divergence(z2_dist, ref2_dist)
+
+            ### Calculate PSNR
+            psnr = PSNR(obs_dec, obs)
+
+            ### Return the reconstruction loss, and the KL divergences, and the cross covariance, and the PSNR
+            return obs_dec, torch.mean(mse), torch.mean(ref_kl1), torch.mean(ref_kl2), z_cross_loss, psnr
+        else:
+            ### Not using the normal distribution samples
+            raise NotImplementedError
+            z1_sample = z1_mean
+            z2_sample = z2_mean
+            z_sample = torch.cat((z1_sample, z2_sample), dim=1)
+            obs_dec = self.decode(z_sample)
+
+            z_cross_loss = (z1_sample.transpose(0, 1) @ z2_sample) / z1_sample.shape[0]
+            z_cross_loss = torch.norm(z_cross_loss, p='fro', dim=(0, 1))
+
+            obs = x 
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
+
+            zero = torch.zeros(1).to(z_cross_loss.device)
+
+            return obs_dec, torch.mean(mse), zero, zero, z_cross_loss, psnr
+
+
+    def sample(self, z, y_cond=None):
+        y = self.decode(z, y_cond=y_cond)
+        return y
+
+    def sample_with_noise(self, num_samples=1, device=torch.device("cpu"), y_cond=None):
+        z = torch.randn(num_samples, self.z_dim).to(device)
+        return self.decode(z, y_cond=y_cond)
+
+    def encode(self, x, o_cond=None):
+        if (self.arch == "dist"):
+            # split the image along dim 1 (channels)
+            dim = x.shape[1]//2
+            x_1 = x[:, :dim, :, :]
+            x_2 = x[:, dim:, :, :]
+
+            if self.conditional and o_cond is not None:
+                mu_1, logvar_1 = self.encoder_1(x_1, o_cond=o_cond)
+                mu_2, logvar_2 = self.encoder_2(x_2, o_cond=o_cond)
+            else:
+                mu_1, logvar_1 = self.encoder_1(x_1)
+                mu_2, logvar_2 = self.encoder_2(x_2)
+
+                mu = torch.cat((mu_1,mu_2),1)
+                logvar = torch.cat((logvar_1,logvar_2),1)
+        else:
+            if self.conditional and o_cond is not None:
+                mu, logvar = self.encoder(x, o_cond=o_cond)
+            else:
+                mu, logvar = self.encoder(x)
+        return mu, logvar
+
+    def decode(self, z, y_cond=None):
+
+        if self.conditional and y_cond is not None:
+            y = self.decoder(z, y_cond=y_cond)
+        else:
+            y = self.decoder(z)
+        return y
+
+
+class CNNEncoder(nn.Module):
+    def __init__(self, obs_shape, feature_dim, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=32,
+                 min_log_std=-10, max_log_std=2):
+        super().__init__()
+
+        # assert len(obs_shape) == 3
+        self.obs_shape = obs_shape
+        self.feature_dim = feature_dim
+        self.num_layers = num_layers
+        self.min_log_std = min_log_std
+        self.max_log_std = max_log_std
+
+        self.conv_layers = nn.ModuleList(
+            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
+        )
+        for i in range(num_layers - 1):
+            self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+
+        x = torch.rand([1] + list(obs_shape))
+        conv_flattened_size = np.prod(self.forward_conv(x).shape[-3:])
+        ff_layers = OrderedDict()
+        previous_feature_size = conv_flattened_size
+        for i in range(n_hidden_layers):
+            ff_layers[f'linear_{i + 1}'] = nn.Linear(in_features=previous_feature_size,
+                                                     out_features=hidden_size)
+            ff_layers[f'relu_{i + 1}'] = nn.ReLU()
+            previous_feature_size = hidden_size
+
+        ff_layers[f'linear_{n_hidden_layers + 1}'] = nn.Linear(in_features=previous_feature_size,
+                                                               out_features=2 * feature_dim)
+        self.ff_layers = nn.Sequential(ff_layers)
+
+    def forward_conv(self, obs):
+        assert obs.max() <= 1 and 0 <= obs.min(), f'Make sure images are in [0, 1]. Get [{obs.min()}, {obs.max()}]'
+        conv = torch.relu(self.conv_layers[0](obs))
+        for i in range(1, self.num_layers):
+            conv = torch.relu(self.conv_layers[i](conv))
+        conv = conv.reshape(conv.size(0), -1)
+        return conv
+
+    def forward(self, obs, detach=False):
+        h = self.forward_conv(obs)
+
+        if detach:
+            h = h.detach()
+
+        out = self.ff_layers(h)
+        mean, log_std = out.split([self.feature_dim, self.feature_dim], dim=1)
+        log_std = log_std.clip(self.min_log_std, self.max_log_std)
+        return mean, log_std
+
+
+class CNNDecoder(nn.Module):
+    def __init__(self, input_dim, out_shape, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
+        super().__init__()
+
+        # assert len(out_shape) == 3, "Please specify output image size, channel first."
+        # assert out_shape[1] % (2 ** num_layers) == 0, "Only supports 2x up-scales."
+        self.out_shape = out_shape
+        self.num_layers = num_layers
+
+        ff_layers = OrderedDict()
+        previous_feature_size = input_dim
+        for i in range(n_hidden_layers):
+            ff_layers[f'linear_{i + 1}'] = nn.Linear(in_features=previous_feature_size,
+                                                     out_features=hidden_size)
+            ff_layers[f'relu_{i + 1}'] = nn.ReLU()
+            previous_feature_size = hidden_size
+
+        side_length = self.out_shape[1] // (2 ** self.num_layers)
+        self.smallest_image_size = (num_filters, side_length, side_length)
+        flattened_size = int(np.prod(self.smallest_image_size))
+        ff_layers[f'linear_{n_hidden_layers + 1}'] = nn.Linear(in_features=previous_feature_size,
+                                                               out_features=flattened_size)
+        ff_layers[f'relu_{n_hidden_layers + 1}'] = nn.ReLU()
+        self.ff_layers = nn.Sequential(ff_layers)
+
+        self.conv_layers = nn.ModuleList()
+        for i in range(num_layers - 1):
+            if i == num_layers - 2 and out_shape[-1] == 100:
+                self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=1, padding=2))
+            elif i == num_layers - 2 and out_shape[-1] == 84:
+                self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=1, padding=2))
+            else:
+                self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=1, padding=1))
+        self.conv_layers.append(nn.Conv2d(num_filters, out_shape[0], 3, stride=1, padding=1))
+
+    def forward(self, z):
+        h = self.ff_layers(z)
+        h = h.reshape((h.shape[0], *self.smallest_image_size))
+
+        for i in range(self.num_layers - 1):
+            h = nn.functional.interpolate(h, scale_factor=2)
+            h = self.conv_layers[i](h)
+            h = nn.functional.relu(h)
+        output = nn.functional.interpolate(h, scale_factor=2)
+        output = self.conv_layers[-1](output)
+
+        return output
+
+
+class E2D1(nn.Module):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample=True): # noise=0.01):
+        super().__init__()
+        self.enc1 = CNNEncoder(obs_shape1, z_dim1)
+        self.enc2 = CNNEncoder(obs_shape2, z_dim2)
+        # self.dec = CNNDecoder(z_dim1 + z_dim2, (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]))
+        self.dec = CNNDecoder( int((z_dim1 + z_dim2)* 0.75 ), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]))
+        self.norm_sample = norm_sample
+        # self.noise = noise
+
+    def forward(self, obs1, obs2):
+        z1_mean, z1_log_std = self.enc1(obs1)
+        z2_mean, z2_log_std = self.enc2(obs2)
+
+        if self.norm_sample:
+            ref1_mean = torch.zeros(z1_mean.shape[1], device=z1_mean.device).unsqueeze(0)
+            ref1_cov = torch.eye(z1_mean.shape[1], device=z1_mean.device).unsqueeze(0)
+            ref1_dist = torch.distributions.MultivariateNormal(ref1_mean, covariance_matrix=ref1_cov)
+            ref2_mean = torch.zeros(z2_mean.shape[1], device=z2_mean.device).unsqueeze(0)
+            ref2_cov = torch.eye(z2_mean.shape[1], device=z2_mean.device).unsqueeze(0)
+            ref2_dist = torch.distributions.MultivariateNormal(ref2_mean, covariance_matrix=ref2_cov)
+
+            z1_cov = torch.diag_embed(torch.exp(z1_log_std * 2))
+            z1_dist = torch.distributions.MultivariateNormal(z1_mean, covariance_matrix=z1_cov)
+            z2_cov = torch.diag_embed(torch.exp(z2_log_std * 2))
+            z2_dist = torch.distributions.MultivariateNormal(z2_mean, covariance_matrix=z2_cov)
+
+            z1_sample = z1_dist.rsample()
+            z2_sample = z2_dist.rsample()      
+            z_sample = torch.cat((z1_sample, z2_sample), dim=1)
+            obs_dec = self.dec(z_sample)
+                
+            ### Calculate the cross covariances
+            ### only backprop through the second encoder
+            z1_norm = (z1_sample - z1_sample.mean(dim=0)).detach()
+            z2_norm = (z2_sample - z2_sample.mean(dim=0))
+            cross_cov = torch.matmul(z1_norm.transpose(0, 1), z2_norm)
+            cross_cov = torch.mean(cross_cov)
+            cov1 = torch.matmul(z1_norm.transpose(0, 1), z1_norm)
+            cov1 = torch.mean(cov1)
+            cov2 = torch.matmul(z2_norm.transpose(0, 1), z2_norm)
+            cov2 = torch.mean(cov2)
+            z_cross_loss = cross_cov / torch.sqrt(cov1 * cov2)
+            z_cross_loss = torch.norm(z_cross_loss, p='fro', dim=(0))
+
+            ### Omits the const term in log. Using MSE, can be derived from a weighted KL.
+            obs = torch.cat((obs1, obs2), dim=1)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            ref_kl1 = torch.distributions.kl_divergence(z1_dist, ref1_dist)
+            ref_kl2 = torch.distributions.kl_divergence(z2_dist, ref2_dist)
+
+            ### Calculate PSNR
+            psnr = PSNR(obs_dec, obs)
+
+            ### Return the reconstruction loss, and the KL divergences, and the cross covariance, and the PSNR
+            return obs_dec, torch.mean(mse), torch.mean(ref_kl1), torch.mean(ref_kl2), z_cross_loss, psnr
+        else:
+            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+            ### leave log_std unused. 
+            num_features = z1_mean.shape[1] // 2 # 16
+            batch_size = z1_mean.shape[0]
+            z1_private = z1_mean[:, :num_features]
+            z2_private = z2_mean[:, :num_features]
+            z1_share = z1_mean[:, num_features:]
+            z2_share = z2_mean[:, num_features:]
+
+            ### similarity (invariance) loss of shared representations
+            invar_loss =  F.mse_loss(z1_share, z2_share)
+
+            ### decode 
+            z_sample = torch.cat((z1_private, z1_share, z2_private), dim=1)
+            obs_dec = self.dec(z_sample)
+            obs = torch.cat((obs1, obs2), dim=1)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
+
+            ### variance loss
+            z1_private_norm = z1_private - z1_private.mean(dim=0)
+            z1_share_norm = z1_share - z1_share.mean(dim=0)
+            z2_private_norm = z2_private - z2_private.mean(dim=0)
+            z2_share_norm = z2_share - z2_share.mean(dim=0)
+
+            std_z1_private = torch.sqrt(z1_private_norm.var(dim=0) + 0.0001)
+            std_z1_share = torch.sqrt(z1_share_norm.var(dim=0) + 0.0001)
+            std_z2_private = torch.sqrt(z2_private_norm.var(dim=0) + 0.0001)
+            std_z2_share = torch.sqrt(z2_share_norm.var(dim=0) + 0.0001)
+            std_loss = torch.mean(F.relu(1 - std_z1_private)) / 4 + torch.mean(F.relu(1 - std_z1_share)) / 4 + torch.mean(F.relu(1 - std_z2_private)) / 4 + torch.mean(F.relu(1 - std_z2_share)) / 4
+
+            ### covariance loss 
+            z1_private_share = torch.cat((z1_private_norm, z1_share_norm), dim=1)
+            z2_private_share = torch.cat((z2_private_norm, z2_share_norm), dim=1)
+            z12_private = torch.cat((z1_private_norm, z2_private_norm), dim=1)
+            covz1 = (z1_private_share.T @ z1_private_share) / (batch_size - 1)
+            covz2 = (z2_private_share.T @ z2_private_share) / (batch_size - 1)
+            covz12 = (z12_private.T @ z12_private) / (batch_size - 1)
+            cov_loss = off_diagonal(covz1).pow_(2).sum().div(num_features) / 3 + off_diagonal(covz2).pow_(2).sum().div(num_features) / 3 + off_diagonal(covz12).pow_(2).sum().div(num_features) / 3
+
+            ### weight parameters recommended by VIC paper: 25, 25, and 10
+            return obs_dec, torch.mean(mse), std_loss, invar_loss, cov_loss, psnr
+
+if __name__ == '__main__':
+    e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
+    rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()
+    rand_obs2 = torch.rand((16, 3, 128, 128)).cuda()
+    obsdec, mseloss, kl1, kl2, crosscor = e2d1(rand_obs1, rand_obs2)
+    print(obsdec.shape, mseloss, kl1, kl2, crosscor)
+
