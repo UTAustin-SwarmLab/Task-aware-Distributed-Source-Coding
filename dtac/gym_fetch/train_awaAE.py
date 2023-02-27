@@ -9,7 +9,7 @@ import os
 import sys
 
 from dtac.gym_fetch.ClassAE import *
-from curl_sac import Actor
+from dtac.gym_fetch.curl_sac import Actor
 
 def random_crop(imgs, out=84, w1=None, h1=None):
     """
@@ -57,14 +57,20 @@ def center_crop_image(image, output_size):
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
                   device=0, save_interval=5, lr=2e-4, seed=0, model_path=None, dataset_dir=None, vae_model="CNNBasedVAE", task_model_epoch=99, norm_sample=True, rand_crop=False):
 
-    # if norm_sample == False:
-
     ### set paths
-    LOG_DIR = f'./summary/{dataset}_{z_dim}_aware{norm_sample}_{rand_crop}{vae_model}_{beta_kl}_{beta_rec}_{beta_task}_{batch_size}_{weight_cross_penalty}'
-    fig_dir = f'./figures/{dataset}_{z_dim}_aware{norm_sample}_{rand_crop}{vae_model}_{beta_kl}_{beta_rec}_{beta_task}_{batch_size}_{weight_cross_penalty}'
+    if norm_sample:
+        model_type = "VAE"
+    else:
+        model_type = "AE"
+    if rand_crop:
+        rc = "randcrop"
+    else:
+        rc = "nocrop"
+    LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # task_model_path = model_path + f'actor_nocrop2image/actor2image-{task_model_epoch}.pth'
-    task_model_path = "/home/pl22767/DistributedTaskAwareCompression/fetch_sim/data/FetchPickAndPlace-v1/sparse-rad_sac-pixel-crop-01-26-FetchPickAndPlace-v1-im84-b128-nu1-change_model-s13618-id94666/model/actor_254000.pt"
-    model_path += f'./{dataset}_{z_dim}_aware{norm_sample}_{rand_crop}{vae_model}_{beta_kl}_{beta_rec}_{beta_task}_{batch_size}_{weight_cross_penalty}'
+    task_model_path = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
+    model_path += f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
     ### Set the random seed
@@ -204,7 +210,7 @@ if __name__ == "__main__":
     python train_awaVAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --norm_sample False --rand_crop True
     """
 
-    model_path = '/home/pl22767/DistributedTaskAwareCompression/gym_fetch/models/'
+    model_path = './models/'
     dataset_dir = '/store/datasets/gym_fetch/'
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

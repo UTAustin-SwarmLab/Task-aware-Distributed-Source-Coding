@@ -163,7 +163,7 @@ def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int
 
 if __name__ == '__main__':
 
-    """python ./fetch_sim/eval_fetch_VAE.py """
+    """python ./gym_fetch/eval_fetch_VAE.py """
 
     ### Set the random seed
     seed = 0
@@ -191,11 +191,8 @@ if __name__ == '__main__':
     device_num = 2
     cropTF = '_nocrop' # '_nocrop' or ''
     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
-    # model_path = './gym_fetch/models/'
-    # model_name = f'{pick}actor{cropTF}{view_from}/actor{view_from}-99.pth'
     model_path = ""
-    model_name = "/home/pl22767/DistributedTaskAwareCompression/fetch_sim/data/FetchPickAndPlace-v1/sparse-rad_sac-pixel-crop-01-26-FetchPickAndPlace-v1-im84-b128-nu1-change_model-s13618-id94666/model/actor_254000.pt"
-
+    model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
 
     image_cropped_size = 84 # 128 84
     image_orig_size = 100 # 100 128
@@ -208,18 +205,28 @@ if __name__ == '__main__':
     beta_kl = 25.0 # 1.0 25.0
     vae_model = "CNNBasedVAE" # "SVAE" or "CNNBasedVAE"
     weight_cross_penalty = 10.0
-    task_weight = 500.0 # task aware
+    beta_task = 500.0 # task aware
     VAEepoch = 2999
     norm_sample = False # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
-    vae_name = f'{dataset}_{z_dim}_aware{norm_sample}{VAEcrop}{vae_model}_{beta_kl}_{beta_rec}_{task_weight}_{batch_size}_{weight_cross_penalty}/DVAE_awa-{VAEepoch}.pth'
+    lr = 1e-4
+    VAE_seed = 0
+    rand_crop = True # True False
+    
+    if norm_sample:
+        model_type = "VAE"
+    else:
+        model_type = "AE"
+    if rand_crop:
+        rc = "randcrop"
+    else:
+        rc = "nocrop"
+    vae_name = f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
     print("VAE is", vae_name)
 
     ### Load policy network here
-    if vae_model == 'SVAE':
-        dvae_model = SoftIntroVAE(arch="dist", cdim=6, zdim=z_dim, image_size=image_orig_size, norm_sample=norm_sample).to(device)
-    elif vae_model == 'CNNBasedVAE':
+    if vae_model == 'CNNBasedVAE':
         if not crop_first:
             dvae_model = E2D1((3, image_orig_size, image_orig_size), (3, image_orig_size, image_orig_size), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
         else:
@@ -229,17 +236,19 @@ if __name__ == '__main__':
     act_model = Actor((channel, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
     act_model.load_state_dict(torch.load(model_path + model_name))
 
-    eval_results = []
-    for dpca_dim in range(min_dpca_dim, max_dpca_dim+1, step_dpca_dim):
-        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(eval_env, act_model, dvae_model, device, dataset, DPCA_tf, dpca_dim)
-        eval_results.append([dpca_dim, mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims[0], rep_dims[1], rep_dims[2]])
+    if DPCA_tf:
+        eval_results = []
+        for dpca_dim in range(min_dpca_dim, max_dpca_dim+1, step_dpca_dim):
+            mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(eval_env, act_model, dvae_model, device, dataset, DPCA_tf, dpca_dim)
+            eval_results.append([dpca_dim, mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims[0], rep_dims[1], rep_dims[2]])
 
-    header = ['dpca_dim', 'mean_ep_reward', 'best_ep_reward', 'std_ep_reward', 'success_rate', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private']
-    csv_name = vae_name.replace('.pth', '.csv').replace('/DVAE', '_DVAE')
-    with open('/home/pl22767/DistributedTaskAwareCompression/fetch_sim/csv_data/' + csv_name, 'w') as f:
-        # create the csv writer
-        writer = csv.writer(f)
-        # write a row to the csv file
-        writer.writerow(header)
-        writer.writerows(eval_results)
-    
+        header = ['dpca_dim', 'mean_ep_reward', 'best_ep_reward', 'std_ep_reward', 'success_rate', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private']
+        csv_name = vae_name.replace('.pth', '.csv').replace('/DVAE', '_DVAE')
+        with open('./gym_fetch/csv_data/' + csv_name, 'w') as f:
+            # create the csv writer
+            writer = csv.writer(f)
+            # write a row to the csv file
+            writer.writerow(header)
+            writer.writerows(eval_results)
+    else:
+        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(eval_env, act_model, dvae_model, device, dataset, DPCA_tf)
