@@ -6,57 +6,13 @@ import argparse
 import random
 import numpy as np
 import os
-import sys
 
 from dtac.gym_fetch.ClassAE import *
 from dtac.gym_fetch.curl_sac import Actor
-
-def random_crop(imgs, out=84, w1=None, h1=None):
-    """
-        args:
-        imgs: np.array shape (B,C,H,W)
-        out: output size (e.g. 84)
-        returns np.array
-    """
-    n, c, h, w = imgs.shape
-    crop_max = h - out + 1
-    if w1 is None and h1 is None:
-        w1 = np.random.randint(0, crop_max, n)
-        h1 = np.random.randint(0, crop_max, n)
-    cropped = torch.empty((n, c, out, out), dtype=imgs.dtype, device=imgs.device)
-    for i, (img, w11, h11) in enumerate(zip(imgs, w1, h1)):
-        cropped[i] = img[:, h11:h11 + out, w11:w11 + out]
-    return cropped, w1, h1
-
-def center_crop_image(image, output_size):
-    h, w = image.shape[-2:]
-    if h > output_size: #center cropping
-        new_h, new_w = output_size, output_size
-
-        top = (h - new_h) // 2
-        left = (w - new_w) // 2
-
-        if len(image.shape) == 3:
-            image = image[:, top:top + new_h, left:left + new_w]
-        elif len(image.shape) == 4:
-            image = image[:, :, top:top + new_h, left:left + new_w]
-        else:
-            raise ValueError("image should be 3 or 4 dimensional")
-        return image
-    else: #center translate
-        shift = output_size - h
-        shift = shift // 2
-        if len(image.shape) == 3:
-            new_image = np.zeros((image.shape[0], output_size, output_size))
-            new_image[:, shift:shift + h, shift:shift+w] = image
-        elif len(image.shape) == 4:
-            new_image = np.zeros((image.shape[0], image.shape[1], output_size, output_size))
-            new_image[:, :, shift:shift + h, shift:shift+w] = image
-        return new_image
+from dtac.gym_fetch.utils import center_crop_image, random_crop_image
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
                   device=0, save_interval=5, lr=2e-4, seed=0, model_path=None, dataset_dir=None, vae_model="CNNBasedVAE", task_model_epoch=99, norm_sample=True, rand_crop=False):
-
     ### set paths
     if norm_sample:
         model_type = "VAE"
@@ -69,7 +25,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # task_model_path = model_path + f'actor_nocrop2image/actor2image-{task_model_epoch}.pth'
-    task_model_path = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
+    task_model_path = "./gym_fetch/PickAndPlaceActor/84x84_actor_2images.pt"
     model_path += f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
@@ -119,8 +75,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
         DVAE_awa = E2D1((3, 84, 84), (3, 84, 84), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
         print("CNNBasedVAE Input shape", (3, 84, 84))
-    elif vae_model == "SVAE":
-        DVAE_awa = SoftIntroVAE(arch="dist", cdim=6, zdim=z_dim, image_size=128, norm_sample=norm_sample).to(device)
     else:
         raise NotImplementedError
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
@@ -140,9 +94,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             if dataset == "PickAndPlace":
                 if rand_crop == True:
                     ### random crop
-                    o1_batch, w, h = random_crop(o1_batch, 84)
-                    o2_batch = random_crop(o2_batch, 84, w, h)[0]
-                    # obs_pred = random_crop(obs_pred, 84, w, h)[0]
+                    o1_batch, w, h = random_crop_image(o1_batch, 84)
+                    o2_batch = random_crop_image(o2_batch, 84, w, h)[0]
+                    # obs_pred = random_crop_image(obs_pred, 84, w, h)[0]
                 else:
                     ### center crop
                     o1_batch = center_crop_image(o1_batch, 84)

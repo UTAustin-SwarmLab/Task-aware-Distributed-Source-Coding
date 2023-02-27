@@ -362,18 +362,45 @@ def random_crop(imgs, output_size):
 
 
 def center_crop_image(image, output_size):
-    h, w = image.shape[1:]
+    h, w = image.shape[-2:]
     if h > output_size: #center cropping
         new_h, new_w = output_size, output_size
 
         top = (h - new_h) // 2
         left = (w - new_w) // 2
 
-        image = image[:, top:top + new_h, left:left + new_w]
+        if len(image.shape) == 3:
+            image = image[:, top:top + new_h, left:left + new_w]
+        elif len(image.shape) == 4:
+            image = image[:, :, top:top + new_h, left:left + new_w]
+        else:
+            raise ValueError("image should be 3 or 4 dimensional")
         return image
     else: #center translate
-        new_image = np.zeros((image.shape[0], output_size, output_size))
         shift = output_size - h
         shift = shift // 2
-        new_image[:, shift:shift + h, shift:shift+w] = image
+        if len(image.shape) == 3:
+            new_image = np.zeros((image.shape[0], output_size, output_size))
+            new_image[:, shift:shift + h, shift:shift+w] = image
+        elif len(image.shape) == 4:
+            new_image = np.zeros((image.shape[0], image.shape[1], output_size, output_size))
+            new_image[:, :, shift:shift + h, shift:shift+w] = image
         return new_image
+    
+
+def random_crop_image(imgs, out=84, w1=None, h1=None):
+    """
+        args:
+        imgs: np.array shape (B,C,H,W)
+        out: output size (e.g. 84)
+        returns np.array
+    """
+    n, c, h, w = imgs.shape
+    crop_max = h - out + 1
+    if w1 is None and h1 is None:
+        w1 = np.random.randint(0, crop_max, n)
+        h1 = np.random.randint(0, crop_max, n)
+    cropped = torch.empty((n, c, out, out), dtype=imgs.dtype, device=imgs.device)
+    for i, (img, w11, h11) in enumerate(zip(imgs, w1, h1)):
+        cropped[i] = img[:, h11:h11 + out, w11:w11 + out]
+    return cropped, w1, h1

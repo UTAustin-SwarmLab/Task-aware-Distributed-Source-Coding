@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-from TransformLayer import ColorJitterLayer
+from dtac.gym_fetch.TransformLayer import ColorJitterLayer
 
 
 def random_crop(imgs, out=84):

@@ -5,9 +5,9 @@ import torch.nn.functional as F
 import copy
 import math
 
-import utils
-from encoder import make_encoder
-import data_augs as rad
+from dtac.gym_fetch import utils
+from dtac.gym_fetch.encoder import make_encoder
+import dtac.gym_fetch.data_augs as rad
 
 LOG_FREQ = 10000
 

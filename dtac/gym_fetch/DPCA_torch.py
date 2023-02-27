@@ -5,7 +5,7 @@ import random
 import sys
 
 from curl_sac import Actor
-from eval_AE import center_crop_image             
+from utils import center_crop_image             
 from ClassAE import *
 
 def PCA(input_data, device): 
