@@ -2,14 +2,16 @@ from pathlib import Path
 import numpy as np
 import torch
 import random
-import sys
 import csv
 
 from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.DPCA_torch import *
-from dtac.gym_fetch.env_wrapper import env_wrapper
+# from dtac.gym_fetch.env_wrapper import env_wrapper
 from dtac.gym_fetch.ClassAE import *
+
+import dtac
+import gym
 
 env_name = 'FetchPickAndPlace' # FetchPickAndPlace FetchReach
 if env_name == 'FetchPickAndPlace':
@@ -18,20 +20,24 @@ else:
     change_model = False
 pick = "" # ""
 cameras = [8, 10]
-image_cropped_size = 84 #84 128
-original_image_size = 100 #100 128
+cropped_image_size = 112 #84 128
+original_image_size = 128 #100 128
 
-eval_env = env_wrapper.make(
-    domain_name=env_name + '-v1',
-    task_name=None,
-    seed=1,
-    visualize_reward=False,
-    from_pixels=True,
-    cameras=cameras,
-    height=original_image_size,
-    width=original_image_size,
-    change_model=change_model)
-print("Env name is", env_name)
+# eval_env = env_wrapper.make(
+#     domain_name=env_name + '-v1',
+#     task_name=None,
+#     seed=1,
+#     visualize_reward=False,
+#     from_pixels=True,
+#     cameras=cameras,
+#     height=original_image_size,
+#     width=original_image_size,
+#     change_model=change_model)
+# print("Env name is", env_name)
+
+eval_env = gym.make('PNP-both-v1')
+# e = gym.make('PNP-side-v1')
+# e = gym.make('PNP-hand-v1')
 
 
 def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
@@ -41,7 +47,7 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
             raise NotImplementedError
         else:
             obs_rec = VAE(obs_tensor)[0][0, :, :, :].clip(0, 1)
-    elif vae_model == "CNNBasedVAE":
+    elif "Joint" not in vae_model and "BasedVAE" in vae_model:
         obs1 = obs_tensor[:, :3, :, :]
         obs2 = obs_tensor[:, 3:, :, :]
         if dpca is not None:
@@ -64,6 +70,18 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
             obs_rec = VAE.dec(z_sample).clip(0, 1)
         else:
             obs_rec = VAE(obs1, obs2)[0][:, :, :, :].clip(0, 1)
+    elif "Joint" in vae_model:
+        if dpca is not None:
+            raise NotImplementedError
+            z1, _ = VAE.enc(obs_tensor)
+            z1 = z1.detach()
+            batch = z1.shape[0]
+            z = z1
+            recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+            z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
+            obs_rec = VAE.dec(z_sample).clip(0, 1)
+        else:
+            obs_rec = VAE(obs_tensor)[0][:, :, :, :].clip(0, 1)
     return obs_rec
 
 def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_episodes=100):
@@ -92,10 +110,10 @@ def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int
                 if not crop_first:
                     #### input 100x100 image
                     obs_rec = encode_and_decode(obs, VAE, dpca, dpca_dim)
-                    obs_rec = center_crop_image(obs_rec)
+                    obs_rec = center_crop_image(obs_rec, cropped_image_size)
                 else:
                     #### input 84x84 image
-                    obs = center_crop_image(obs)
+                    obs = center_crop_image(obs, cropped_image_size)
                     obs_rec = encode_and_decode(obs, VAE, dpca, dpca_dim)
                 
                 ### no VAE
@@ -161,30 +179,32 @@ if __name__ == '__main__':
         print("Not running DPCA.")
 
     device_num = 2
-    cropTF = '_nocrop' # '_nocrop' or ''
     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
     model_path = ""
-    model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
+    # model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
+    model_name = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
 
-    image_cropped_size = 84 # 128 84
-    image_orig_size = 100 # 100 128
-    z_dim = 64
-    vae_path = './gym_fetch/models/'
+    cropped_image_size = 112 # 128 84
+    image_orig_size = 128 # 100 128
+    vae_path = './models/'
     dataset = "PickAndPlace" # gym_fetch PickAndPlace
 
+    z_dim = 48
     beta_rec = 5000.0 # 98304.0 10000.0
     batch_size = 128
     beta_kl = 25.0 # 1.0 25.0
-    vae_model = "CNNBasedVAE" # "SVAE" or "CNNBasedVAE"
+    vae_model = "JointResBasedVAE" # "SVAE" or "CNNBasedVAE" or "ResBasedVAE" or "JointResBasedVAE"
     weight_cross_penalty = 10.0
     beta_task = 500.0 # task aware
-    VAEepoch = 2999
+    VAEepoch = 1549
     norm_sample = False # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
     lr = 1e-4
     VAE_seed = 0
     rand_crop = True # True False
+    n_samples = 4
+    n_res_blocks = 3
     
     if norm_sample:
         model_type = "VAE"
@@ -200,12 +220,18 @@ if __name__ == '__main__':
     ### Load policy network here
     if vae_model == 'CNNBasedVAE':
         if not crop_first:
-            dvae_model = E2D1((3, image_orig_size, image_orig_size), (3, image_orig_size, image_orig_size), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
+            dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample).to(device)
         else:
-            dvae_model = E2D1((3, image_cropped_size, image_cropped_size), (3, image_cropped_size, image_cropped_size), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
+            dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample).to(device)
+    elif vae_model == 'ResBasedVAE':
+        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, n_samples, n_res_blocks).to(device)
+    elif vae_model == 'JointCNNBasedVAE':
+        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample=norm_sample).to(device)
+    elif vae_model == 'JointResBasedVAE':
+        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, n_samples, n_res_blocks).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
-    act_model = Actor((channel, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+    act_model = Actor((channel, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
     act_model.load_state_dict(torch.load(model_path + model_name))
 
     if DPCA_tf:

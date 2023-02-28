@@ -4,9 +4,9 @@ import torch
 import random
 import sys
 
-from curl_sac import Actor
-from utils import center_crop_image             
-from ClassAE import *
+from dtac.gym_fetch.curl_sac import Actor
+from dtac.gym_fetch.utils import center_crop_image             
+# from dtac.gym_fetch.ClassAE import *
 
 def PCA(input_data, device): 
     '''

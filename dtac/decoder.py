@@ -12,13 +12,13 @@ class ResDecoder(nn.Module):
         super().__init__()
 
         assert len(output_shape) == 3
-        assert n_upsamples == len(num_filters)
+        # assert n_upsamples == len(num_filters)
         assert output_shape[1] % 2 ** n_upsamples == 0
         self.output_shape = output_shape
         self.feature_dim = feature_dim
         self.n_upsamples = n_upsamples
         self.n_res_blocks = n_res_blocks
-        self.smallest_conv_shape = (num_filters[-1], output_shape[1] // 2 ** n_upsamples,
+        self.smallest_conv_shape = (num_filters[n_upsamples-1], output_shape[1] // 2 ** n_upsamples,
                                  output_shape[2] // 2 ** n_upsamples)
 
         self.conv_layers = nn.ModuleList(

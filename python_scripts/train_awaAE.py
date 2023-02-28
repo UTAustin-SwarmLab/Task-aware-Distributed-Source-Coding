@@ -1,5 +1,6 @@
 import torch
 import torch.optim as optim
+### to start tensorboard: tensorboard --logdir=./python_scripts/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
 import argparse
@@ -25,7 +26,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # task_model_path = model_path + f'actor_nocrop2image/actor2image-{task_model_epoch}.pth'
-    task_model_path = "./gym_fetch/PickAndPlaceActor/84x84_actor_2images.pt"
+    # task_model_path = "./gym_fetch/PickAndPlaceActor/84x84_actor_2images.pt"
+    task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
     model_path += f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
@@ -52,10 +54,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         action = reach[2]
         cropped_image_size = 128
     elif dataset == "PickAndPlace":
-        pick = torch.load(dataset_dir + '0_20001.pt')
+        pick = torch.load(dataset_dir + 'pnp_128_20011.pt')
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
-        cropped_image_size = 84
+        cropped_image_size = 112
     else:
         raise NotImplementedError
 
@@ -73,8 +75,17 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     if vae_model == "CNNBasedVAE":
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1((3, 84, 84), (3, 84, 84), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        print("CNNBasedVAE Input shape", (3, 84, 84))
+        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
+        print("CNNBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
+    elif vae_model == "ResBasedVAE":
+        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 3, 2).to(device)
+        print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
+    elif vae_model == "JointCNNBasedVAE":
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample).to(device)
+        print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
+    elif vae_model == "JointResBasedVAE":
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 2).to(device)
+        print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
@@ -94,17 +105,19 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             if dataset == "PickAndPlace":
                 if rand_crop == True:
                     ### random crop
-                    o1_batch, w, h = random_crop_image(o1_batch, 84)
-                    o2_batch = random_crop_image(o2_batch, 84, w, h)[0]
-                    # obs_pred = random_crop_image(obs_pred, 84, w, h)[0]
+                    o1_batch, w, h = random_crop_image(o1_batch, cropped_image_size)
+                    o2_batch = random_crop_image(o2_batch, cropped_image_size, w, h)[0]
+                    # obs_pred = random_crop_image(obs_pred, cropped_image_size, w, h)[0]
                 else:
                     ### center crop
-                    o1_batch = center_crop_image(o1_batch, 84)
-                    o2_batch = center_crop_image(o2_batch, 84)
-                    # obs_pred = center_crop_image(obs_pred, 84)
+                    o1_batch = center_crop_image(o1_batch, cropped_image_size)
+                    o2_batch = center_crop_image(o2_batch, cropped_image_size)
+                    # obs_pred = center_crop_image(obs_pred, cropped_image_size)
 
-                if vae_model == "CNNBasedVAE":
+                if "Joint" not in vae_model and "BasedVAE" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
+                elif "Joint" in vae_model:
+                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
                 elif vae_model == "SVAE":
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
 
@@ -115,8 +128,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
 
             elif dataset == "gym_fetch": # gym_fetch
-                if vae_model == "CNNBasedVAE":
+                if "Joint" not in vae_model and "BasedVAE" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
+                elif "Joint" in vae_model:
+                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
                 elif vae_model == "SVAE":
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
 
@@ -160,8 +175,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """        
-    python train_awaVAE.py --dataset gym_fetch --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 0.0 --beta_task 10 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model SVAE --norm_sample False --rand_crop True
-    python train_awaVAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --norm_sample False --rand_crop True
+    python train_awaAE.py --dataset gym_fetch --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 0.0 --beta_task 10 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model SVAE --norm_sample False --rand_crop True
+    python train_awaAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --norm_sample False --rand_crop True
+    python train_awaAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 5000.0 --beta_kl 25.0 --beta_task 500 --z_dim 48 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model JointResBasedVAE --norm_sample False --rand_crop True
     """
 
     model_path = './models/'
