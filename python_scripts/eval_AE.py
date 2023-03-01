@@ -117,7 +117,7 @@ def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int
                     obs_rec = encode_and_decode(obs, VAE, dpca, dpca_dim)
                 
                 ### no VAE
-                # obs = center_crop_image(obs)
+                # obs = center_crop_image(obs, cropped_image_size)
                 # obs_rec = torch.tensor(obs).to(device).float().unsqueeze(0) / 255
 
                 ### Parse image to get the side view or both view
@@ -190,21 +190,21 @@ if __name__ == '__main__':
     dataset = "PickAndPlace" # gym_fetch PickAndPlace
 
     z_dim = 48
-    beta_rec = 5000.0 # 98304.0 10000.0
+    beta_rec = 0.0 # 98304.0 10000.0
     batch_size = 128
-    beta_kl = 25.0 # 1.0 25.0
-    vae_model = "JointResBasedVAE" # "SVAE" or "CNNBasedVAE" or "ResBasedVAE" or "JointResBasedVAE"
-    weight_cross_penalty = 10.0
-    beta_task = 500.0 # task aware
-    VAEepoch = 1549
+    beta_kl = 0.0 # 1.0 25.0
+    vae_model = "JointCNNBasedVAE" # "SVAE" or "CNNBasedVAE" or "ResBasedVAE" or "JointResBasedVAE"
+    weight_cross_penalty = 0.0
+    beta_task = 100.0 # task aware
+    VAEepoch = 249
     norm_sample = False # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
     lr = 1e-4
     VAE_seed = 0
     rand_crop = True # True False
-    n_samples = 4
-    n_res_blocks = 3
+    n_samples = 4 - VAE_seed
+    n_res_blocks = 3 - VAE_seed
     
     if norm_sample:
         model_type = "VAE"
@@ -226,7 +226,8 @@ if __name__ == '__main__':
     elif vae_model == 'ResBasedVAE':
         dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, n_samples, n_res_blocks).to(device)
     elif vae_model == 'JointCNNBasedVAE':
-        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample=norm_sample).to(device)
+        # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
+        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 128, 2, 128).to(device)
     elif vae_model == 'JointResBasedVAE':
         dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, n_samples, n_res_blocks).to(device)
 

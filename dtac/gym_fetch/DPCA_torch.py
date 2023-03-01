@@ -6,7 +6,7 @@ import sys
 
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image             
-# from dtac.gym_fetch.ClassAE import *
+from dtac.gym_fetch.ClassAE import *
 
 def PCA(input_data, device): 
     '''
@@ -198,9 +198,7 @@ if __name__ == '__main__':
     vae_name = f'gym_fetch_{z_dim}_aware{norm_sample}{vae_model}_{beta_kl}_{beta_rec}_{task_weight}_{batch_size}_{weight_cross_penalty}/DVAE_awa-{VAEepoch}.pth'
 
     ### Load policy network
-    if vae_model == 'SVAE':
-        dvae_model = SoftIntroVAE(arch="dist", cdim=6, zdim=z_dim, image_size=image_orig_size, norm_sample=norm_sample).to(device)
-    elif vae_model == 'CNNBasedVAE':
+    if vae_model == 'CNNBasedVAE':
         dvae_model = E2D1((3,128,128), (3,128,128), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))

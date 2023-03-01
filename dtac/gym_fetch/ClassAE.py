@@ -48,7 +48,7 @@ def off_diagonal(x):
 
 
 class CNNEncoder(nn.Module):
-    def __init__(self, obs_shape, feature_dim, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=32,
+    def __init__(self, obs_shape, feature_dim, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128,
                  min_log_std=-10, max_log_std=2):
         super().__init__()
 
@@ -149,14 +149,12 @@ class CNNDecoder(nn.Module):
 
 
 class E2D1(nn.Module):
-    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample: bool=True):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample: bool=True, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
         super().__init__()
-        self.enc1 = CNNEncoder(obs_shape1, z_dim1)
-        self.enc2 = CNNEncoder(obs_shape2, z_dim2)
-        # self.dec = CNNDecoder(z_dim1 + z_dim2, (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]))
+        self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.dec = CNNDecoder( int((z_dim1 + z_dim2)* 0.75 ), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]))
         self.norm_sample = norm_sample
-        # self.noise = noise
 
     def forward(self, obs1, obs2):
         z1_mean, z1_log_std = self.enc1(obs1)
@@ -210,10 +208,10 @@ class E2D1(nn.Module):
 
 
 class E1D1(nn.Module):
-    def __init__(self, obs_shape: tuple, z_dim: int, norm_sample: bool=True): # noise=0.01):
+    def __init__(self, obs_shape: tuple, z_dim: int, norm_sample: bool=True, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128): # noise=0.01):
         super().__init__()
-        self.enc = CNNEncoder(obs_shape, z_dim)
-        self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]))
+        self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), num_layers, num_filters, n_hidden_layers, hidden_size)
         self.norm_sample = norm_sample
 
     def forward(self, obs):

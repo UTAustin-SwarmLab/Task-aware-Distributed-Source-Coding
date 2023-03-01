@@ -75,16 +75,16 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     if vae_model == "CNNBasedVAE":
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
+        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4, 128, 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "ResBasedVAE":
-        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 3, 2).to(device)
+        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 2, 1).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "JointCNNBasedVAE":
-        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample).to(device)
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 2).to(device)
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 2, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
@@ -107,7 +107,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     ### random crop
                     o1_batch, w, h = random_crop_image(o1_batch, cropped_image_size)
                     o2_batch = random_crop_image(o2_batch, cropped_image_size, w, h)[0]
-                    # obs_pred = random_crop_image(obs_pred, cropped_image_size, w, h)[0]
                 else:
                     ### center crop
                     o1_batch = center_crop_image(o1_batch, cropped_image_size)
@@ -126,7 +125,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                 action_gt = task_model(obs)[0]
                 task_loss = torch.mean((action_gt - task_output) ** 2)
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
-
             elif dataset == "gym_fetch": # gym_fetch
                 if "Joint" not in vae_model and "BasedVAE" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)

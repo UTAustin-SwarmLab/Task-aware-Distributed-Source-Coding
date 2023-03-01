@@ -6,7 +6,7 @@ import copy
 import math
 
 from dtac.gym_fetch import utils
-from dtac.gym_fetch.encoder import make_encoder
+from dtac.gym_fetch.actor_encoder import make_encoder
 import dtac.gym_fetch.data_augs as rad
 
 LOG_FREQ = 10000
