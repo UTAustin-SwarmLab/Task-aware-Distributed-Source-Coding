@@ -247,7 +247,7 @@ class PixelPickAndPlaceEnv(gym.Env):
         return obs
     
     def seed(self, seed=None):
-        return self._env.seed(seed=seed)
+        return self._env.unwrapped.seed(seed=seed)
 
 
 def register_env():
