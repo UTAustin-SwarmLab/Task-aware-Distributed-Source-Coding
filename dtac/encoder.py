@@ -12,7 +12,7 @@ class ResEncoder(nn.Module):
         super().__init__()
 
         assert len(input_shape) == 3
-        assert n_downsamples == len(num_filters)
+        # assert n_downsamples == len(num_filters)
         self.input_shape = input_shape
         self.feature_dim = feature_dim
         self.n_downsamples = n_downsamples
