@@ -245,6 +245,9 @@ class PixelPickAndPlaceEnv(gym.Env):
                               self._state_obs['achieved_goal'],
                               self._state_obs['desired_goal']])
         return obs
+    
+    def seed(self, seed=None):
+        return self._env.seed(seed=seed)
 
 
 def register_env():
