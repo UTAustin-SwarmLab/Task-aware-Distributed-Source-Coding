@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import random
+import argparse
 import csv
 
 from dtac.gym_fetch.utils import center_crop_image
@@ -12,6 +13,15 @@ from dtac.gym_fetch.ClassAE import *
 
 import dtac
 import gym
+
+### Set the random seed
+seed = 0
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+print("random seed: ", seed)
 
 env_name = 'FetchPickAndPlace' # FetchPickAndPlace FetchReach
 if env_name == 'FetchPickAndPlace':
@@ -153,23 +163,38 @@ def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int
 
 if __name__ == '__main__':
 
-    """python ./gym_fetch/eval_fetch_VAE.py """
+    """python eval_AE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -ns False -crop True -dpca 0"""
 
-    ### Set the random seed
-    seed = 0
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    print("random seed: ", seed)
+    ### take the argument
+    parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
+    parser.add_argument("-z", "--z_dim", type=int, help="latent dimensions", default=64)
+    parser.add_argument("-l", "--lr", type=float, help="learning rate", default=1e-4)
+    parser.add_argument("-b", "--batch_size", type=int, help="batch size", default=128)
+    parser.add_argument("-r", "--beta_rec", type=float, help="beta coefficient for the reconstruction loss", default=0.0)
+    parser.add_argument("-k", "--beta_kl", type=float, help="beta coefficient for the kl divergence", default=25)
+    parser.add_argument("-t", "--beta_task", type=float, help="beta coefficient for the task loss", default=0)
+    parser.add_argument("-corpen", "--cross_penalty", type=float, help="cross-correlation penalty", default=10)
+    parser.add_argument("-s", "--seed", type=int, help="seed", default=0)
+    parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=7)
+    parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
+    parser.add_argument("-vae_e", "--vae_epoch", type=int, help="task model eposh", default=99)
+    parser.add_argument("-ns", "--norm_sample", type=int, help="Sample from Normal distribution (VAE) or not", default=False)
+    parser.add_argument("-crop", "--rand_crop", type=int, help="randomly crop images", default=False)
+    parser.add_argument("-dpca", "--dpca", type=int, help="DPCA or not", default=False)
+    args = parser.parse_args()
 
     view_from = '2image' # '2image' or '_side' or '_arm'
     view, channel = 1, 3
     if view_from == '2image':
         view, channel = 2, 6
 
-    DPCA_tf = False # True False
+    device_num = 7
+    device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
+    model_path = ""
+    # model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
+    model_name = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
+
+    DPCA_tf = args.dpca # True False
     min_dpca_dim = 2
     max_dpca_dim = 48
     step_dpca_dim = 2
@@ -178,33 +203,25 @@ if __name__ == '__main__':
     else:
         print("Not running DPCA.")
 
-    device_num = 2
-    device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
-    model_path = ""
-    # model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
-    model_name = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
-
+    z_dim = args.z_dim
+    beta_rec = args.beta_rec # 98304.0 10000.0
+    beta_kl = args.beta_kl # 1.0 25.0
+    vae_model = args.vae_model # "CNNBasedVAE" or "ResBasedVAE" or "JointResBasedVAE" or "JointCNNBasedVAE"
+    weight_cross_penalty = args.cross_penalty
+    beta_task = args.beta_task # task aware
+    VAEepoch = args.vae_epoch
+    lr = args.lr
+    VAE_seed = args.seed
+    
     cropped_image_size = 112 # 128 84
     image_orig_size = 128 # 100 128
     vae_path = './models/'
     dataset = "PickAndPlace" # gym_fetch PickAndPlace
-
-    z_dim = 48
-    beta_rec = 0.0 # 98304.0 10000.0
-    batch_size = 128
-    beta_kl = 0.0 # 1.0 25.0
-    vae_model = "JointCNNBasedVAE" # "SVAE" or "CNNBasedVAE" or "ResBasedVAE" or "JointResBasedVAE"
-    weight_cross_penalty = 0.0
-    beta_task = 100.0 # task aware
-    VAEepoch = 249
-    norm_sample = False # False True
+    batch_size = args.batch_size # 128
+    norm_sample = bool(args.norm_sample) # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
-    lr = 1e-4
-    VAE_seed = 0
-    rand_crop = True # True False
-    n_samples = 4 - VAE_seed
-    n_res_blocks = 3 - VAE_seed
+    rand_crop = bool(args.rand_crop) # True False
     
     if norm_sample:
         model_type = "VAE"
@@ -219,17 +236,14 @@ if __name__ == '__main__':
 
     ### Load policy network here
     if vae_model == 'CNNBasedVAE':
-        if not crop_first:
-            dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample).to(device)
-        else:
-            dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample).to(device)
+        dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-VAE_seed, int(128/(VAE_seed+1)), 2, 128).to(device)
     elif vae_model == 'ResBasedVAE':
-        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, n_samples, n_res_blocks).to(device)
+        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-VAE_seed, 3-VAE_seed).to(device)
     elif vae_model == 'JointCNNBasedVAE':
         # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
-        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 128, 2, 128).to(device)
+        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-VAE_seed, int(128/(VAE_seed+1)), 2, 128).to(device)
     elif vae_model == 'JointResBasedVAE':
-        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, n_samples, n_res_blocks).to(device)
+        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-VAE_seed, 3-VAE_seed).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
     act_model = Actor((channel, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
@@ -243,7 +257,7 @@ if __name__ == '__main__':
 
         header = ['dpca_dim', 'mean_ep_reward', 'best_ep_reward', 'std_ep_reward', 'success_rate', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private']
         csv_name = vae_name.replace('.pth', '.csv').replace('/DVAE', '_DVAE')
-        with open('./gym_fetch/csv_data/' + csv_name, 'w') as f:
+        with open('../csv_data/' + csv_name, 'w') as f:
             # create the csv writer
             writer = csv.writer(f)
             # write a row to the csv file

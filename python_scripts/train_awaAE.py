@@ -24,7 +24,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     else:
         rc = "nocrop"
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # task_model_path = model_path + f'actor_nocrop2image/actor2image-{task_model_epoch}.pth'
     # task_model_path = "./gym_fetch/PickAndPlaceActor/84x84_actor_2images.pt"
     task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
@@ -75,16 +75,16 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     if vae_model == "CNNBasedVAE":
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4, 128, 2, 128).to(device)
+        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "ResBasedVAE":
-        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 2, 1).to(device)
+        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, 3-seed).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "JointCNNBasedVAE":
-        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 2, 1).to(device)
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-seed, 3-seed).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
@@ -160,7 +160,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("Epoch: {}, Loss: {}".format(ep, np.mean(ep_loss)))
 
         ### save model
-        if (ep + 1) % save_interval == 0 or (ep + 1) <= 10:
+        if (ep + 1) % save_interval == 0 or (ep + 1) == 10:
             torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')  
 
         ### export figure

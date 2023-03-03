@@ -105,9 +105,9 @@ def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
         obs1 = reach[0][:, 0:3, :, :]
         obs2 = reach[0][:, 3:6, :, :]
     elif env == 'PickAndPlace':
-        pick = torch.load(dataset_dir + '0_20001.pt')
+        pick = torch.load(dataset_dir + 'pnp_128_20011.pt')
         ### center crop image
-        cropped_image_size = 84
+        cropped_image_size = 112
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
