@@ -14,15 +14,6 @@ from dtac.gym_fetch.ClassAE import *
 import dtac
 import gym
 
-### Set the random seed
-seed = 0
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
-print("random seed: ", seed)
-
 env_name = 'FetchPickAndPlace' # FetchPickAndPlace FetchReach
 if env_name == 'FetchPickAndPlace':
     change_model = True
@@ -96,6 +87,7 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
 
 def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_episodes=100):
     all_ep_rewards = []
+    env.seed(0)
 
     def run_eval_loop():
         num_successes = 0
