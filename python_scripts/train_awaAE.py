@@ -88,6 +88,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
+    DVAE_awa = DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
     index = np.arange(len(obs1))

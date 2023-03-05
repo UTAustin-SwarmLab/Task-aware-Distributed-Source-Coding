@@ -5,32 +5,8 @@ from torch import nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
-# from gym_fetch.utils import PSNR
-
 from dtac.encoder import ResEncoder
 from dtac.decoder import ResDecoder
-
-### Calculate the cross correlation between two signals
-def crossCorZ(z1, z2):
-    # Cross correlation between two z_means 
-    # Input: two z_means 
-    # shape: ( (prev_bat + 1) * batch_size, z_dim)  * 2. [steps * batch, zdim] [0] is the current batch
-    # Output: cross correlation between two z_means: scalar 
-    
-    ### normalise z1 and z2
-    z1_norm = (z1 - z1.mean(dim=0))
-    z2_norm = (z2 - z2.mean(dim=0))
-    cross_cov = torch.matmul(z1_norm.transpose(0, 1), z2_norm)
-    cross_cov = torch.mean(cross_cov)
-    cov1 = torch.matmul(z1_norm.transpose(0, 1), z1_norm)
-    cov1 = torch.mean(cov1)
-    cov2 = torch.matmul(z2_norm.transpose(0, 1), z2_norm)
-    cov2 = torch.mean(cov2)
-
-    z_cross_loss = cross_cov / torch.sqrt(cov1 * cov2)
-    
-    return torch.abs(z_cross_loss)
-
 
 def PSNR(img1, img2, PIXEL_MAX = 255.0):
     mse = torch.mean((img1 - img2) ** 2)

@@ -97,6 +97,69 @@ class DPCA_Process():
         return output
 
 
+class PCA_Process():
+    def __init__(self, singular_val_vec, mean, num_features:int, device) -> None:
+        '''
+        singular_val_vec: (s, v, seg). s: singular value, v: singular vector, seg: segment number
+        mean: (d,). mean of data.
+        num features: number of features in each segment.
+        device: cpu or gpu.
+        '''
+        self.singular_val_vec = singular_val_vec ### (singular value, singular vector, segment#)
+        self.mean = mean
+        self.num_features = num_features
+        self.d = mean.shape[0]
+        self.device = device
+
+        return
+
+    def LinearEncode(self, input_data, dpca_dim:int=0):                
+        '''
+        input: (n, d)
+        self.projs: [(n, d1), (n, d2), (n, d3)]. d1+d2+d3 = dpca_dim
+        dpca_dim: number of principal components
+        mean: (d,)
+        '''
+        assert input_data.shape[1] == self.d
+        n = input_data.shape[0]
+
+        norm_input = input_data - self.mean
+        self.projs = []
+        self.proj_vec = []
+        for i in range(dpca_dim):
+            seg = self.singular_val_vec[i][2]
+            self.projs.append(norm_input[:, :] @ self.singular_val_vec[i][1])
+            self.proj_vec.append(self.singular_val_vec[i][1])
+        
+        self.projs = torch.stack(self.projs, dim=1)
+        self.proj_vec = torch.stack(self.proj_vec, dim=1)
+
+        return
+
+    def LinearDecode(self, dpca_dim:int):
+        '''
+        output: (n, d). The reconstructed input data
+        '''
+        assert dpca_dim > 0 and dpca_dim <= self.d
+
+        n = self.projs[0].shape[0]
+        output = torch.zeros((n, self.d), device=self.device)
+        output[:, :] = torch.matmul(self.projs, self.proj_vec.T)
+
+        return output + self.mean
+
+    def LinearEncDec(self, input, dpca_dim:int):
+        '''
+        First do linear encoding, then do linear decoding
+        input: (n, d)
+        dpca_dim: number of principal components
+        output: (n, d). The reconstructed input data
+        '''
+        self.LinearEncode(input, dpca_dim)
+        output = self.LinearDecode(dpca_dim)
+        return output
+
+
 def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     ### Load dataset
     dataset_dir = '/store/datasets/gym_fetch/'
@@ -157,9 +220,59 @@ def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/3), device)
     return dpca, singular_val_vec
 
-# for ii in range(min_pca_dim, max_pca_dim, step):
-#     recon_Z = dpca.LinearEncDec(Z, dpca_dim=ii)
-#     print(f"recon error {ii}: ", torch.norm(Z - recon_Z, p='fro') / len(obs1))
+
+def JointPCA(dvae_model, rep_dim, device, env='gym_fetch'):
+    ### Load dataset
+    dataset_dir = '/store/datasets/gym_fetch/'
+    if env == 'gym_fetch':
+        reach = torch.load(dataset_dir + 'reach.pt')
+        obs1 = reach[0][:, 0:3, :, :]
+        obs2 = reach[0][:, 3:6, :, :]
+    elif env == 'PickAndPlace':
+        pick = torch.load(dataset_dir + 'pnp_128_20011.pt')
+        ### center crop image
+        cropped_image_size = 112
+        pick[0] = center_crop_image(pick[0], cropped_image_size)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
+    else:
+        raise NotImplementedError
+
+    index = np.arange(len(obs1))
+    batch = 100
+    n_batches = len(obs1) // batch
+    
+    Z = torch.zeros((len(obs1), rep_dim), device=device)
+    # invar = []
+
+    for i in range(n_batches):
+        b_idx = index[i * batch:(i + 1) * batch]
+        o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
+        o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+
+        ### get middle representations
+        obs = torch.cat((o1_batch, o2_batch), dim=1)
+        z, _ = dvae_model.enc(obs)
+        z = z.detach()
+        num_features = z.shape[1]
+        batch = z.shape[0]
+
+        ### collect private and share representations
+        ### concatenate representations
+        Z[b_idx, :] = z
+
+    mean = Z.mean(axis=0)
+
+    ### PCA for each segment
+    singular_val_vec = []
+    seg_singular_val_vec, _ = PCA(Z, device)
+    for s, v in seg_singular_val_vec:
+        singular_val_vec.append( (s, v, 0) )
+    singular_val_vec.sort(key=lambda x: x[0], reverse=True)
+
+    dpca = PCA_Process(singular_val_vec, mean, rep_dim, device)
+    return dpca, singular_val_vec
+
 
 if __name__ == '__main__':
     ### Set the random seed

@@ -5,6 +5,7 @@ import random
 import argparse
 import csv
 
+from dtac.gym_fetch.behavior_cloning_agent import ImageBasedRLAgent
 from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.DPCA_torch import *
@@ -23,22 +24,6 @@ pick = "" # ""
 cameras = [8, 10]
 cropped_image_size = 112 #84 128
 original_image_size = 128 #100 128
-
-# eval_env = env_wrapper.make(
-#     domain_name=env_name + '-v1',
-#     task_name=None,
-#     seed=1,
-#     visualize_reward=False,
-#     from_pixels=True,
-#     cameras=cameras,
-#     height=original_image_size,
-#     width=original_image_size,
-#     change_model=change_model)
-# print("Env name is", env_name)
-
-eval_env = gym.make('PNP-both-v1')
-# e = gym.make('PNP-side-v1')
-# e = gym.make('PNP-hand-v1')
 
 
 def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
@@ -73,31 +58,48 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
             obs_rec = VAE(obs1, obs2)[0][:, :, :, :].clip(0, 1)
     elif "Joint" in vae_model:
         if dpca is not None:
-            raise NotImplementedError
-            z1, _ = VAE.enc(obs_tensor)
-            z1 = z1.detach()
-            batch = z1.shape[0]
-            z = z1
+            z, _ = VAE.enc(obs_tensor)
+            z = z.detach()
+            batch = z.shape[0]
             recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
-            z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
+            z_sample = recon_z
             obs_rec = VAE.dec(z_sample).clip(0, 1)
         else:
             obs_rec = VAE(obs_tensor)[0][:, :, :, :].clip(0, 1)
     return obs_rec
 
-def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_episodes=100):
+def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_episodes=100):
     all_ep_rewards = []
-    env.seed(0)
+
+    seed = 0
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    env = gym.make('PNP-both-v1')
+    # e = gym.make('PNP-side-v1')
+    # e = gym.make('PNP-hand-v1')
+    env.seed(seed)
 
     def run_eval_loop():
         num_successes = 0
         if DPCA_tf:
-            dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
-            ### count importance priority of dimensions
-            rep_dims = [0, 0, 0]
-            for i in range(dpca_dim):
-                seg = singular_val_vec[i][2]
-                rep_dims[seg] += 1
+            if "Joint" not in vae_model:
+                dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
+                ### count importance priority of dimensions
+                rep_dims = [0, 0, 0]
+                for i in range(dpca_dim):
+                    seg = singular_val_vec[i][2]
+                    rep_dims[seg] += 1
+            else:
+                dpca, singular_val_vec = JointPCA(VAE, rep_dim=z_dim, device=device, env=dataset)
+                ### count importance priority of dimensions
+                print(dpca_dim)
+                rep_dims = [0, 0, 0]
+                for i in range(dpca_dim):
+                    seg = singular_val_vec[i][2]
+                    rep_dims[seg] += 1
         else:
             dpca = None
 
@@ -139,7 +141,6 @@ def evaluate(env, policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int
                     episode_success = True
                 episode_reward += reward
             num_successes += episode_success
-
             all_ep_rewards.append(episode_reward)
 
         mean_ep_reward = np.mean(all_ep_rewards)
@@ -214,7 +215,7 @@ if __name__ == '__main__':
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
     rand_crop = bool(args.rand_crop) # True False
-    
+
     if norm_sample:
         model_type = "VAE"
     else:
@@ -238,13 +239,15 @@ if __name__ == '__main__':
         dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-VAE_seed, 3-VAE_seed).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
+    dvae_model.eval()
     act_model = Actor((channel, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
     act_model.load_state_dict(torch.load(model_path + model_name))
+    act_model.eval()
 
     if DPCA_tf:
         eval_results = []
         for dpca_dim in range(min_dpca_dim, max_dpca_dim+1, step_dpca_dim):
-            mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(eval_env, act_model, dvae_model, device, dataset, DPCA_tf, dpca_dim)
+            mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, DPCA_tf, dpca_dim)
             eval_results.append([dpca_dim, mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims[0], rep_dims[1], rep_dims[2]])
 
         header = ['dpca_dim', 'mean_ep_reward', 'best_ep_reward', 'std_ep_reward', 'success_rate', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private']
@@ -256,4 +259,4 @@ if __name__ == '__main__':
             writer.writerow(header)
             writer.writerows(eval_results)
     else:
-        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(eval_env, act_model, dvae_model, device, dataset, DPCA_tf)
+        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, DPCA_tf)
