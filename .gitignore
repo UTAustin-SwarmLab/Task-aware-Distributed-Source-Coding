@@ -137,3 +137,9 @@ dmypy.json
 *.pth
 */summary/*
 *.csv
+*.txt
+*.jpg
+*.cache
+*.0
+*.yaml
+*.png

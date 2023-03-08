@@ -181,7 +181,7 @@ if __name__ == '__main__':
     if view_from == '2image':
         view, channel = 2, 6
 
-    device_num = 7
+    device_num = 6
     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
     model_path = ""
     # model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
