@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from torch import nn
-from torchvision.models.resnet import BasicBlock
+from pcn.resnet import LNBlock
 from collections import OrderedDict
 
 
@@ -12,7 +12,7 @@ class ResDecoder(nn.Module):
         super().__init__()
 
         assert len(output_shape) == 3
-        # assert n_upsamples == len(num_filters)
+        assert n_upsamples == len(num_filters)
         assert output_shape[1] % 2 ** n_upsamples == 0
         self.output_shape = output_shape
         self.feature_dim = feature_dim
@@ -26,6 +26,8 @@ class ResDecoder(nn.Module):
         )
         for i in range(self.n_upsamples - 1):
             self.conv_layers.append(nn.Conv2d(num_filters[i + 1], num_filters[i], 3, stride=1, padding=1))
+        
+        conv_shapes = self.compute_conv_shapes()
 
         self.final_conv = nn.Conv2d(final_upsample_filters, self.output_shape[0], 3, stride=1, padding=1)
 
@@ -33,12 +35,11 @@ class ResDecoder(nn.Module):
         for i in range(self.n_upsamples):
             self.res_blocks.append(nn.ModuleList())
             for j in range(self.n_res_blocks):
-                self.res_blocks[i].append(BasicBlock(num_filters[i], num_filters[i]))
+                self.res_blocks[i].append(LNBlock(conv_shapes[i + 1]))
 
-        self.bn_layers = nn.ModuleList()
-        self.bn_layers.append(nn.BatchNorm2d(final_upsample_filters))
-        for i in range(self.n_upsamples - 1):
-            self.bn_layers.append(nn.BatchNorm2d(num_filters[i]))
+        self.ln_layers = nn.ModuleList()
+        for i in range(self.n_upsamples + 1):
+            self.ln_layers.append(nn.LayerNorm(conv_shapes[i]))
 
         ff_layers = OrderedDict()
         last_hidden_dim = np.prod(self.smallest_conv_shape)
@@ -53,6 +54,15 @@ class ResDecoder(nn.Module):
                                                                out_features=last_hidden_dim)
         self.ff_layers = nn.Sequential(ff_layers)
 
+    def compute_conv_shapes(self):
+        shapes = [self.smallest_conv_shape]
+        y = torch.rand([1] + list(self.smallest_conv_shape))
+        for i in range(self.n_upsamples -1, -1, -1):
+            y = nn.functional.interpolate(y, scale_factor=2)
+            y = self.conv_layers[i](y)
+            shapes.insert(0, y.shape[1:])
+        return shapes
+
     def forward_conv(self, h):
         conv = h
         for i in range(self.n_upsamples - 1, -1, -1):
@@ -60,7 +70,7 @@ class ResDecoder(nn.Module):
                 conv = self.res_blocks[i][j](conv)
             conv = nn.functional.interpolate(conv, scale_factor=2)
             conv = self.conv_layers[i](conv)
-            conv = self.bn_layers[i](conv)
+            conv = self.ln_layers[i](conv)
             conv = torch.relu(conv)
         conv = self.final_conv(conv)
         return conv

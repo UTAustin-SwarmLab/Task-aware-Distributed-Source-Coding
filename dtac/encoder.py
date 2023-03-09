@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from torch import nn
-from torchvision.models.resnet import BasicBlock
+from dtac.resnet import LNBlock
 from collections import OrderedDict
 
 
@@ -12,7 +12,7 @@ class ResEncoder(nn.Module):
         super().__init__()
 
         assert len(input_shape) == 3
-        # assert n_downsamples == len(num_filters)
+        assert n_downsamples == len(num_filters)
         self.input_shape = input_shape
         self.feature_dim = feature_dim
         self.n_downsamples = n_downsamples
@@ -24,15 +24,17 @@ class ResEncoder(nn.Module):
         for i in range(self.n_downsamples - 1):
             self.conv_layers.append(nn.Conv2d(num_filters[i], num_filters[i + 1], 3, stride=2, padding=1))
 
+        conv_shapes = self.compute_conv_shapes()
+
         self.res_blocks = nn.ModuleList()
         for i in range(self.n_downsamples):
             self.res_blocks.append(nn.ModuleList())
             for j in range(self.n_res_blocks):
-                self.res_blocks[i].append(BasicBlock(num_filters[i], num_filters[i]))
+                self.res_blocks[i].append(LNBlock(conv_shapes[i]))
         
-        self.bn_layers = nn.ModuleList()
+        self.ln_layers = nn.ModuleList()
         for i in range(self.n_downsamples):
-            self.bn_layers.append(nn.BatchNorm2d(num_filters[i]))
+            self.ln_layers.append(nn.LayerNorm(conv_shapes[i]))
 
         x = torch.rand([1] + list(input_shape))
         conv_flattened_size = np.prod(self.forward_conv(x).shape[-3:])
@@ -48,12 +50,20 @@ class ResEncoder(nn.Module):
                                                                out_features=2 * feature_dim)
         self.ff_layers = nn.Sequential(ff_layers)
 
+    def compute_conv_shapes(self):
+        shapes = []
+        y = torch.rand([1] + list(self.input_shape))
+        for i in range(self.n_downsamples):
+            y = self.conv_layers[i](y)
+            shapes.append(y.shape[1:])
+        return shapes
+
     def forward_conv(self, obs):
         assert obs.max() <= 1 and 0 <= obs.min(), f'Make sure images are between 0 and 1. Get [{obs.min()}, {obs.max()}]'
         conv = obs
         for i in range(self.n_downsamples):
             conv = self.conv_layers[i](conv)
-            conv = self.bn_layers[i](conv)
+            conv = self.ln_layers[i](conv)
             conv = torch.relu(conv)
             for j in range(self.n_res_blocks):
                 conv = self.res_blocks[i][j](conv)
