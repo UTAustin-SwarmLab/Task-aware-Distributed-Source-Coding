@@ -5,8 +5,6 @@ import torch
 import pandas as pd
 import numpy as np
 import os
-from PIL import Image
-# import torchvision.transforms as transforms
 import random
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -27,27 +25,23 @@ TILE_WIDTH = 896
 TILE_HEIGHT = 512
 TILE_OVERLAP = 64
 TRUNCATED_PERCENT = 0.3
+print(f"Tile size: {TILE_WIDTH}x{TILE_HEIGHT} with {TILE_OVERLAP} pix overlap and {TRUNCATED_PERCENT} truncated percent")
 
 files_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/train/'
 test_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/val/'
 
 LEARNING_RATE = 2e-5
-device_num = 6
+device_num = 5
 DEVICE = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64 # 64 in original paper but resource exhausted error otherwise.
 WEIGHT_DECAY = 0
-EPOCHS = 150
+EPOCHS = 100
 NUM_WORKERS = 2
 PIN_MEMORY = True
 LOAD_MODEL = False
 MODEL_PATH = f"./models/YoloV1_{TILE_WIDTH}x{TILE_HEIGHT}/"
 if not os.path.exists(MODEL_PATH):
     os.makedirs(MODEL_PATH)
-
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
 
 g = torch.Generator()
 g.manual_seed(0)
@@ -77,98 +71,6 @@ test_annots = pd.Series(test_annots, name='test_annots')
 test_df = pd.concat([test_images, test_annots], axis=1)
 test_df = pd.DataFrame(test_df)
 
-class ImagesDataset(torch.utils.data.Dataset):
-    def __init__(self, df=df, files_dir=files_dir, S=7, B=2, C=3, transform=None):
-        self.annotations = df
-        self.files_dir = files_dir
-        self.transform = transform
-        self.S = S
-        self.B = B
-        self.C = C
-
-    def __len__(self):
-        return len(self.annotations)
-
-    def __getitem__(self, index):
-        label_path = os.path.join(self.files_dir, self.annotations.iloc[index, 1])
-        boxes = []
-        class_dictionary = {'0':0}
-
-        file1 = open(label_path, 'r')
-        Lines = file1.readlines()
-        for line in Lines:
-            if line != '':
-                if line == '\n':
-                    raise ValueError('Empty line in label file')
-                
-                line = line.split()
-                klass = class_dictionary[line[0]]
-                centerx = float(line[1])
-                centery = float(line[2])
-                boxwidth = float(line[3])
-                boxheight = float(line[4])
-                boxes.append([klass, centerx, centery, boxwidth, boxheight])
-                
-        boxes = torch.tensor(boxes, dtype=torch.float)
-        img_path = os.path.join(self.files_dir, self.annotations.iloc[index, 0])
-        image = Image.open(img_path)
-        image = image.convert("RGB")
-
-        if self.transform is not None:
-            # image, boxes = self.transform(image, boxes)]
-            
-            image = np.array(image)
-            image = self.transform(image=image)["image"]
-            image = image.float()
-            boxes = boxes
-
-
-        # Convert To Cells
-        label_matrix = torch.zeros((self.S, self.S, self.C + 5 * self.B))
-        for box in boxes:
-            class_label, x, y, width, height = box.tolist()
-            class_label = int(class_label)
-
-            # i,j represents the cell row and cell column
-            i, j = int(self.S * y), int(self.S * x)
-            x_cell, y_cell = self.S * x - j, self.S * y - i
-
-            """
-            Calculating the width and height of cell of bounding box,
-            relative to the cell is done by the following, with
-            width as the example:
-            
-            width_pixels = (width*self.image_width)
-            cell_pixels = (self.image_width)
-            
-            Then to find the width relative to the cell is simply:
-            width_pixels/cell_pixels, simplification leads to the
-            formulas below.
-            """
-            width_cell, height_cell = (
-                width * self.S,
-                height * self.S,
-            )
-
-            # If no object already found for specific cell i,j
-            # Note: This means we restrict to ONE object
-            # per cell!
-            if label_matrix[i, j, self.C] == 0:
-                # Set that there exists an object
-                label_matrix[i, j, self.C] = 1
-
-                # Box coordinates
-                box_coordinates = torch.tensor(
-                    [x_cell, y_cell, width_cell, height_cell]
-                )
-
-                label_matrix[i, j, 4:8] = box_coordinates
-
-                # Set one hot encoding for class_label
-                label_matrix[i, j, class_label] = 1
-
-        return image, label_matrix
-
 def train_fn(train_loader, model, optimizer, loss_fn):
     loop = tqdm(train_loader, leave=True)
     mean_loss = []
@@ -187,6 +89,7 @@ def train_fn(train_loader, model, optimizer, loss_fn):
     print(f"Mean loss was {sum(mean_loss) / len(mean_loss)}")
 
 transform_img = A.Compose([
+    A.Resize(width=224, height=224),
     A.Resize(width=448, height=448),
     A.Blur(p=0.5, blur_limit=(3, 7)), 
     A.MedianBlur(p=0.5, blur_limit=(3, 7)), A.ToGray(p=0.5), 
@@ -195,9 +98,12 @@ transform_img = A.Compose([
 ])
 
 test_transform_img = A.Compose([
+    A.Resize(width=224, height=224),
     A.Resize(width=448, height=448),
     ToTensorV2(p=1.0)
 ])
+
+print("resize to 224x224 and 448x448")
 
 def main():
     model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
@@ -209,8 +115,9 @@ def main():
     loss_fn = YoloLoss()
 
     train_dataset = ImagesDataset(
-        transform=transform_img,
-        files_dir=files_dir
+        files_dir=files_dir,
+        df=df,
+        transform=transform_img
     )
 
     train_loader = DataLoader(
@@ -252,27 +159,28 @@ def main():
         print(f"Train mAP ({epoch}): {mean_avg_prec}")
         scheduler.step(mean_avg_prec)
 
-        ### Test
-        model.eval()
-        train_fn(test_loader, model, optimizer, loss_fn)
-        
-        pred_boxes, target_boxes = get_bboxes(
-            test_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
-        )
+        if epoch % 20 == 0:
+            ### Test
+            model.eval()
+            train_fn(test_loader, model, optimizer, loss_fn)
+            
+            pred_boxes, target_boxes = get_bboxes(
+                test_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
+            )
 
-        test_mean_avg_prec = mean_average_precision(
-            pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
-        )
-        print(f"Test mAP: {test_mean_avg_prec}")
+            test_mean_avg_prec = mean_average_precision(
+                pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
+            )
+            print(f"Test mAP: {test_mean_avg_prec}")
 
-        if (mean_avg_prec >= 0.8 and test_mean_avg_prec >= 0.8 and epoch % 5 == 0) or epoch == EPOCHS - 1:
-            checkpoint = {
-                    "state_dict": model.state_dict(),
-                    # "optimizer": optimizer.state_dict(),
-                    "Train mAP": mean_avg_prec,
-                    "Test mAP": test_mean_avg_prec,
-            }
-            save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
+            if (mean_avg_prec >= 0.95 and test_mean_avg_prec >= 0.95) or epoch == EPOCHS - 1:
+                checkpoint = {
+                        "state_dict": model.state_dict(),
+                        # "optimizer": optimizer.state_dict(),
+                        "Train mAP": mean_avg_prec,
+                        "Test mAP": test_mean_avg_prec,
+                }
+                save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_upsample224_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
 
 
 def predictions():
@@ -343,6 +251,6 @@ def predictions():
 
 
 if __name__ == "__main__":
-    # main()
-    predictions()
+    main()
+    # predictions()
 

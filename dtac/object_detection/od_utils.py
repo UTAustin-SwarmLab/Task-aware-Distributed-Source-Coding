@@ -1,6 +1,109 @@
 ### code modified from https://www.kaggle.com/code/vexxingbanana/yolov1-from-scratch-pytorch
 import torch
+import albumentations as A
 from collections import Counter
+from PIL import Image
+import numpy as np
+import random
+import os
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+class ImagesDataset(torch.utils.data.Dataset):
+    def __init__(self, df, files_dir, S=7, B=2, C=3, transform=None):
+        self.annotations = df
+        self.files_dir = files_dir
+        self.transform = transform
+        self.S = S
+        self.B = B
+        self.C = C
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, index):
+        label_path = os.path.join(self.files_dir, self.annotations.iloc[index, 1])
+        boxes = []
+        class_dictionary = {'0':0}
+
+        file1 = open(label_path, 'r')
+        Lines = file1.readlines()
+        for line in Lines:
+            if line != '':
+                if line == '\n':
+                    raise ValueError('Empty line in label file')
+                
+                line = line.split()
+                klass = class_dictionary[line[0]]
+                centerx = float(line[1])
+                centery = float(line[2])
+                boxwidth = float(line[3])
+                boxheight = float(line[4])
+                boxes.append([klass, centerx, centery, boxwidth, boxheight])
+                
+        boxes = torch.tensor(boxes, dtype=torch.float)
+        img_path = os.path.join(self.files_dir, self.annotations.iloc[index, 0])
+        image = Image.open(img_path)
+        image = image.convert("RGB")
+
+        if self.transform is not None:
+            # image, boxes = self.transform(image, boxes)]
+            
+            image = np.array(image)
+            image = self.transform(image=image)["image"]
+            image = image.float()
+            boxes = boxes
+
+
+        # Convert To Cells
+        label_matrix = torch.zeros((self.S, self.S, self.C + 5 * self.B))
+        for box in boxes:
+            class_label, x, y, width, height = box.tolist()
+            class_label = int(class_label)
+
+            # i,j represents the cell row and cell column
+            i, j = int(self.S * y), int(self.S * x)
+            x_cell, y_cell = self.S * x - j, self.S * y - i
+
+            """
+            Calculating the width and height of cell of bounding box,
+            relative to the cell is done by the following, with
+            width as the example:
+            
+            width_pixels = (width*self.image_width)
+            cell_pixels = (self.image_width)
+            
+            Then to find the width relative to the cell is simply:
+            width_pixels/cell_pixels, simplification leads to the
+            formulas below.
+            """
+            width_cell, height_cell = (
+                width * self.S,
+                height * self.S,
+            )
+
+            # If no object already found for specific cell i,j
+            # Note: This means we restrict to ONE object
+            # per cell!
+            if label_matrix[i, j, self.C] == 0:
+                # Set that there exists an object
+                label_matrix[i, j, self.C] = 1
+
+                # Box coordinates
+                box_coordinates = torch.tensor(
+                    [x_cell, y_cell, width_cell, height_cell]
+                )
+
+                label_matrix[i, j, 4:8] = box_coordinates
+
+                # Set one hot encoding for class_label
+                label_matrix[i, j, class_label] = 1
+
+        return image, label_matrix
+
 
 def intersection_over_union(boxes_preds, boxes_labels, box_format='midpoint'):
     """
@@ -245,6 +348,71 @@ def get_bboxes(
 
     model.train()
     return all_pred_boxes, all_true_boxes
+
+
+def get_bboxes_AE(
+    loader,
+    task_model,
+    AE,
+    joint:bool, 
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+    all_pred_boxes = []
+    all_true_boxes = []
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+
+    for batch_idx, (x, labels) in enumerate(loader):
+        x = x.to(device) / 255.0
+        labels = labels.to(device)
+
+        ### encode and decode data
+        with torch.no_grad():
+            if joint:
+                x = AE(x)[0]
+            else:
+                x1 = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2 = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+                x = AE(x1, x2, x)[0]
+
+            x = x.clip(0, 1) * 255.0
+            x = A.Resize(width=448, height=448)(image=x)['image'] ### resize to 448x448
+            predictions = task_model(x)
+
+        batch_size = x.shape[0]
+        true_bboxes = cellboxes_to_boxes(labels)
+        bboxes = cellboxes_to_boxes(predictions)
+
+        for idx in range(batch_size):
+            nms_boxes = non_max_suppression(
+                bboxes[idx],
+                iou_threshold=iou_threshold,
+                threshold=threshold,
+                box_format=box_format,
+            )
+
+            for nms_box in nms_boxes:
+                all_pred_boxes.append([train_idx] + nms_box)
+
+            for box in true_bboxes[idx]:
+                # many will get converted to 0 pred
+                if box[1] > threshold:
+                    all_true_boxes.append([train_idx] + box)
+
+            train_idx += 1
+
+    AE.train()
+    return all_pred_boxes, all_true_boxes
+
 
 def convert_cellboxes(predictions, S=7, C=3):
     """

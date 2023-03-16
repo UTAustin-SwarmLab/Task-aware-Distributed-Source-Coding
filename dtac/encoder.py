@@ -78,7 +78,7 @@ class ResEncoder(nn.Module):
 
 
 if __name__ == '__main__':
-    encoder = ResEncoder(input_shape=(3, 112, 112), feature_dim=32)
-    x = torch.rand([1, 3, 112, 112])
+    encoder = ResEncoder(input_shape=(3, 512, 512), feature_dim=256)
+    x = torch.rand([1, 3, 512, 512])
     mean, log_std = encoder(x)
     print(mean.shape, log_std.shape)

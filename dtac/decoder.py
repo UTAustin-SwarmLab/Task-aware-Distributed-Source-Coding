@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from torch import nn
-from pcn.resnet import LNBlock
+from dtac.resnet import LNBlock
 from collections import OrderedDict
 
 
@@ -83,7 +83,7 @@ class ResDecoder(nn.Module):
 
 
 if __name__ == '__main__':
-    decoder = ResDecoder(output_shape=(6, 112, 112), feature_dim=32)
-    x = torch.rand([1, 32])
+    decoder = ResDecoder(output_shape=(3, 896, 512), feature_dim=256)
+    x = torch.rand([1, 256])
     image = decoder(x)
     print(image.shape)
