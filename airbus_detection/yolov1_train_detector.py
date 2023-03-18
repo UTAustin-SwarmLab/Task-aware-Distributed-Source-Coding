@@ -21,7 +21,7 @@ np.random.seed(seed)
 random.seed(seed)
 
 # Create TILE_WIDTHxTILE_HEIGHT tiles with 64 pix overlap
-TILE_WIDTH = 896
+TILE_WIDTH = 512
 TILE_HEIGHT = 512
 TILE_OVERLAP = 64
 TRUNCATED_PERCENT = 0.3
@@ -31,11 +31,11 @@ files_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}
 test_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/val/'
 
 LEARNING_RATE = 2e-5
-device_num = 5
+device_num = 7
 DEVICE = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64 # 64 in original paper but resource exhausted error otherwise.
 WEIGHT_DECAY = 0
-EPOCHS = 100
+EPOCHS = 1000
 NUM_WORKERS = 2
 PIN_MEMORY = True
 LOAD_MODEL = False
@@ -107,6 +107,7 @@ print("resize to 224x224 and 448x448")
 
 def main():
     model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
+    model.load_state_dict(torch.load("/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth")["state_dict"])
     model.float()
     optimizer = optim.Adam(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
@@ -145,6 +146,7 @@ def main():
     )
 
     for epoch in range(EPOCHS):
+        epoch += 150
         ### Train
         model.train()
         train_fn(train_loader, model, optimizer, loss_fn)
@@ -159,7 +161,7 @@ def main():
         print(f"Train mAP ({epoch}): {mean_avg_prec}")
         scheduler.step(mean_avg_prec)
 
-        if epoch % 20 == 0:
+        if epoch % 10 == 0 or epoch == EPOCHS - 1:
             ### Test
             model.eval()
             train_fn(test_loader, model, optimizer, loss_fn)
@@ -173,7 +175,7 @@ def main():
             )
             print(f"Test mAP: {test_mean_avg_prec}")
 
-            if (mean_avg_prec >= 0.95 and test_mean_avg_prec >= 0.95) or epoch == EPOCHS - 1:
+            if (mean_avg_prec >= 0.9 and test_mean_avg_prec >= 0.9) or epoch == EPOCHS - 1:
                 checkpoint = {
                         "state_dict": model.state_dict(),
                         # "optimizer": optimizer.state_dict(),
@@ -185,21 +187,19 @@ def main():
 
 def predictions():
     LOAD_MODEL = True
-    LOAD_MODEL_FILE = MODEL_PATH + f"yolov1_512x896_ep100_map0.97_0.99.pth"
+    LOAD_MODEL_FILE = MODEL_PATH + f"yolov1_512x512_ep80_map0.98_0.99.pth"
 
-    EPOCHS = 1
     model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
     optimizer = optim.Adam(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
-    loss_fn = YoloLoss()
 
     if LOAD_MODEL:
         model, optimizer = load_checkpoint(torch.load(LOAD_MODEL_FILE), model, optimizer)
-    # model.float()
 
     train_dataset = ImagesDataset(
         transform=transform_img,
+        df=df,
         files_dir=files_dir
     )
 
@@ -227,7 +227,7 @@ def predictions():
         generator=g
     )
 
-    for epoch in range(EPOCHS):
+    for epoch in range(1):
         model.eval()
         ### test on train set
         pred_boxes, target_boxes = get_bboxes(
@@ -251,6 +251,6 @@ def predictions():
 
 
 if __name__ == "__main__":
-    main()
-    # predictions()
+    # main()
+    predictions()
 

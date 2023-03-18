@@ -1,31 +1,44 @@
+# reference to https://github.com/pytorch/vision/blob/a4f53308b2d0f1aa9191686e326f45c26053f686/torchvision/models/resnet.py#L288
+from functools import partial
+from typing import Any, Callable, List, Optional, Type, Union
+
 import torch
-import numpy as np
+import torch.nn as nn
+from torch import Tensor
+
 from torchsummary import summary
-from ultralytics import YOLO
-import cv2
 
-device_num = 1
-device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
-dic = torch.load("../airbus_detection/runs/detect/train10/weights/best.pt")
+import dtac.ResNetEnc as enc
+import dtac.ResNetDec as dec
 
-# print(dic.keys(), dic["train_args"])
-task_model = dic["model"].to(device)
-# task_model.eval()
-results = task_model(torch.rand(1, 3, 512, 512).half().to(device))
-print(results[0].grad)
+if __name__ == "__main__":
+	netF = enc.ResNet(enc.Bottleneck, [3, 4, 23, 3], return_indices=True)
+	# state_dict = torch.load('../dtac/resnet101-63fe2227.pth') # https://download.pytorch.org/models/resnet101-63fe2227.pth
+	state_dict = torch.load('../dtac/resnet50-0676ba61.pth') # https://download.pytorch.org/models/resnet50-0676ba61.pth
+	netF.load_state_dict(state_dict)
 
-# random_input = np.random.rand(1, 3, 512, 512)
-# results = task_model(random_input)
-print(results[0].shape)
-print(results[1][0].shape)
-print(results[1][1].shape)
-print(results[1][2].shape)
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	netF.to(device)
+	test_input = torch.rand(2, 3, 221, 221).to(device)
+	# input_size = (3, 224, 224)
+	# test_input = [torch.rand(2, *input_size).type(torch.FloatTensor).to(device=device)]
+	out, indices = netF(test_input)
 
-# for result in results:
-#     # detection
-#     result.boxes.xyxy   # box with xyxy format, (N, 4)
-#     result.boxes.xywh   # box with xywh format, (N, 4)
-#     result.boxes.xyxyn  # box with xyxy format but normalized, (N, 4)
-#     result.boxes.xywhn  # box with xywh format but normalized, (N, 4)
-#     result.boxes.conf   # confidence score, (N, 1)
-#     result.boxes.cls    # cls, (N, 1)
+	print('Feature shape:', out.shape)
+
+	netD = dec.ResNet(dec.Bottleneck, [3, 23, 4, 3])
+	netD.to(device)
+	rec = netD(out, indices)
+
+	print('Reconstrusted image size:', rec.shape)
+
+	# summary(netD, [(2048, 1, 1), (64, 56, 56)])
+	# summary(netF, (3, 224, 224))
+	# summary(netD, (2048, 1, 1))
+
+    # x = torch.rand(2, 3, 224, 224).to(device)
+    # out, indices = netF(x)
+    # print(out.shape, len(indices))
+    # rec = netD(out, indices)
+    # print(rec.shape)
+

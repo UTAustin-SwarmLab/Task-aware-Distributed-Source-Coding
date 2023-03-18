@@ -1,6 +1,6 @@
 ### code modified from https://www.kaggle.com/code/vexxingbanana/yolov1-from-scratch-pytorch
 import torch
-import albumentations as A
+import torch.nn.functional as F
 from collections import Counter
 from PIL import Image
 import numpy as np
@@ -384,8 +384,12 @@ def get_bboxes_AE(
                 x2 = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
                 x = AE(x1, x2, x)[0]
 
+            if AE.training or task_model.training:
+                print(AE.training, task_model.training)
+                raise KeyError("VAE and task model should be in the training mode")
+        
             x = x.clip(0, 1) * 255.0
-            x = A.Resize(width=448, height=448)(image=x)['image'] ### resize to 448x448
+            x = F.interpolate(x, size=(448, 448)) ### resize to 448x448
             predictions = task_model(x)
 
         batch_size = x.shape[0]

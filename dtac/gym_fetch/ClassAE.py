@@ -7,6 +7,8 @@ from collections import OrderedDict
 
 from dtac.encoder import ResEncoder
 from dtac.decoder import ResDecoder
+import dtac.ResNetEnc as ResNetenc
+import dtac.ResNetDec as ResNetdec
 
 def PSNR(img1, img2, PIXEL_MAX = 255.0):
     mse = torch.mean((img1 - img2) ** 2)
@@ -129,7 +131,65 @@ class E2D1(nn.Module):
         super().__init__()
         self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
-        # self.dec = CNNDecoder( int((z_dim1 + z_dim2)* 0.75 ), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
+        self.dec = CNNDecoder( int((z_dim1 + z_dim2)* 0.75 ), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
+        self.norm_sample = norm_sample
+
+    def forward(self, obs1, obs2):
+        z1_mean, z1_log_std = self.enc1(obs1)
+        z2_mean, z2_log_std = self.enc2(obs2)
+
+        if self.norm_sample:
+            raise NotImplementedError
+        else:
+            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+            ### leave log_std unused. 
+            num_features = z1_mean.shape[1] // 2 # 16
+            batch_size = z1_mean.shape[0]
+            z1_private = z1_mean[:, :num_features]
+            z2_private = z2_mean[:, :num_features]
+            z1_share = z1_mean[:, num_features:]
+            z2_share = z2_mean[:, num_features:]
+
+            ### similarity (invariance) loss of shared representations
+            invar_loss =  F.mse_loss(z1_share, z2_share)
+
+            ### decode 
+            z_sample = torch.cat((z1_private, z1_share, z2_private), dim=1)
+            obs_dec = self.dec(z_sample)
+            obs = torch.cat((obs1, obs2), dim=1)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
+
+            ### variance loss
+            z1_private_norm = z1_private - z1_private.mean(dim=0)
+            z1_share_norm = z1_share - z1_share.mean(dim=0)
+            z2_private_norm = z2_private - z2_private.mean(dim=0)
+            z2_share_norm = z2_share - z2_share.mean(dim=0)
+
+            std_z1_private = torch.sqrt(z1_private_norm.var(dim=0) + 0.0001)
+            std_z1_share = torch.sqrt(z1_share_norm.var(dim=0) + 0.0001)
+            std_z2_private = torch.sqrt(z2_private_norm.var(dim=0) + 0.0001)
+            std_z2_share = torch.sqrt(z2_share_norm.var(dim=0) + 0.0001)
+            std_loss = torch.mean(F.relu(1 - std_z1_private)) / 4 + torch.mean(F.relu(1 - std_z1_share)) / 4 + torch.mean(F.relu(1 - std_z2_private)) / 4 + torch.mean(F.relu(1 - std_z2_share)) / 4
+
+            ### covariance loss 
+            z1_private_share = torch.cat((z1_private_norm, z1_share_norm), dim=1)
+            z2_private_share = torch.cat((z2_private_norm, z2_share_norm), dim=1)
+            z12_private = torch.cat((z1_private_norm, z2_private_norm), dim=1)
+            covz1 = (z1_private_share.T @ z1_private_share) / (batch_size - 1)
+            covz2 = (z2_private_share.T @ z2_private_share) / (batch_size - 1)
+            covz12 = (z12_private.T @ z12_private) / (batch_size - 1)
+            cov_loss = off_diagonal(covz1).pow_(2).sum().div(num_features) / 3 + off_diagonal(covz2).pow_(2).sum().div(num_features) / 3 + off_diagonal(covz12).pow_(2).sum().div(num_features) / 3
+
+            ### weight parameters recommended by VIC paper: 25, 25, and 10
+            return obs_dec, torch.mean(mse), std_loss, invar_loss, cov_loss, psnr
+
+
+class E2D1NonSym(nn.Module):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample: bool=True, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
+        super().__init__()
+        self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.dec = CNNDecoder( int((z_dim1 + z_dim2)* 0.75 ), (obs_shape1[0], obs_shape1[2], obs_shape1[2])) ### airbus
         self.norm_sample = norm_sample
 
@@ -394,10 +454,62 @@ class ResE1D1(nn.Module):
             return obs_dec, torch.mean(mse), std_loss, invar_loss, cov_loss, psnr
 
 
+class ResNetE1D1(nn.Module):
+    def __init__(self, norm_sample: bool=False): # noise=0.01):
+        super().__init__()
+        self.enc = ResNetenc.ResNet(ResNetenc.Bottleneck, [3, 4, 6, 3], return_indices=True)
+        self.dec = ResNetdec.ResNet(ResNetdec.Bottleneck, [3, 4, 6, 3])
+        self.norm_sample = norm_sample
+
+    def forward(self, obs):
+        z1_mean, indices = self.enc(obs) ### 2048
+
+        if self.norm_sample:
+            raise NotImplementedError
+        else:
+            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+            ### leave log_std unused. 
+            num_features = z1_mean.shape[1] // 2
+            batch_size = z1_mean.shape[0]
+            z1_private = z1_mean[:, :num_features]
+            z1_share = z1_mean[:, num_features:]
+
+            ### similarity (invariance) loss of shared representations
+            invar_loss =  F.mse_loss(z1_share, z1_share) # this is always 0
+
+            ### decode 
+            z_sample = torch.cat((z1_private, z1_share), dim=1)
+            obs_dec = self.dec(z_sample, indices)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
+
+            ### variance loss
+            z1_private_norm = (z1_private - z1_private.mean(dim=0)).reshape(batch_size, num_features)
+            z1_share_norm = (z1_share - z1_share.mean(dim=0)).reshape(batch_size, num_features)
+
+            std_z1_private = torch.sqrt(z1_private_norm.var(dim=0) + 0.0001)
+            std_z1_share = torch.sqrt(z1_share_norm.var(dim=0) + 0.0001)
+            std_loss = torch.mean(F.relu(1 - std_z1_private)) / 2 + torch.mean(F.relu(1 - std_z1_share)) / 2
+
+            ### covariance loss 
+            z1_private_share = torch.cat((z1_private_norm, z1_share_norm), dim=1)
+            covz1 = (z1_private_share.T @ z1_private_share) / (batch_size - 1)
+            cov_loss = off_diagonal(covz1).pow_(2).sum().div(num_features) / 3
+
+            ### weight parameters recommended by VIC paper: 25, 25, and 10
+            return obs_dec, torch.mean(mse), std_loss, invar_loss, cov_loss, psnr
+
+
 if __name__ == '__main__':
-    e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
-    rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()
-    rand_obs2 = torch.rand((16, 3, 128, 128)).cuda()
-    obsdec, mseloss, kl1, kl2, crosscor = e2d1(rand_obs1, rand_obs2)
-    print(obsdec.shape, mseloss, kl1, kl2, crosscor)
+    # e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
+    # rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()
+    # rand_obs2 = torch.rand((16, 3, 128, 128)).cuda()
+    # obsdec, mseloss, kl1, kl2, crosscor = e2d1(rand_obs1, rand_obs2)
+    # print(obsdec.shape, mseloss, kl1, kl2, crosscor)
+
+    e1d1 = ResNetE1D1().cuda()
+    rand_obs = torch.rand((16, 3, 221, 221)).cuda()
+    obsdec, mseloss, std_loss, invar_loss, cov_loss, psnr = e1d1(rand_obs)
+    print(obsdec.shape, mseloss, std_loss, invar_loss, cov_loss, psnr)
+
 
