@@ -29,7 +29,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
+    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_512x512_ep80_map0.98_0.99.pth"
+
     model_path = f'./models/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
@@ -47,7 +49,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     ### Load the dataset
     if dataset == "airbus":
-        files_dir = f'../airbus_dataset/896x512_overlap64_percent0.3_/train/'
+        file_parent_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/'
+        files_dir = file_parent_dir + 'train/'
         images = [image for image in sorted(os.listdir(files_dir))
                         if image[-4:]=='.jpg']
         annots = []
@@ -61,11 +64,14 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         df = pd.DataFrame(df)
 
         print(f"resize to {height}x{height} then 448x448")
+        print("testing set: ", files_dir.split('/')[-2])
+        p = 0.01
+        print("p: ", p)
         transform_img = A.Compose([
             A.Resize(width=height, height=height),
-            A.Blur(p=0.5, blur_limit=(3, 7)), 
-            A.MedianBlur(p=0.5, blur_limit=(3, 7)), A.ToGray(p=0.5), 
-            A.CLAHE(p=0.5, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+            A.Blur(p=p, blur_limit=(3, 7)), 
+            A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+            A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
             ToTensorV2(p=1.0)
         ])
         train_dataset = ImagesDataset(
@@ -88,7 +94,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         cropped_image_size = height
 
         ### laod test dataset
-        test_dir = f'../airbus_dataset/896x512_overlap64_percent0.3_/val/'
+        test_dir = file_parent_dir + 'val/'
         test_images = [image for image in sorted(os.listdir(test_dir))
                                 if image[-4:]=='.jpg']
         test_annots = []
@@ -124,6 +130,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
     checkpoint = torch.load(task_model_path)
     task_model.load_state_dict(checkpoint["state_dict"])
+    print("=> Loading checkpoint\n", "Train mAP:", checkpoint['Train mAP'], "\tTest mAP:", checkpoint['Test mAP'])
     task_model.eval()
     for param in task_model.parameters():
         param.requires_grad = False
@@ -153,7 +160,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     else:
         DVAE_awa = ResNetE1D1().to(device)
 
-    
     DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
@@ -252,8 +258,7 @@ if __name__ == "__main__":
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
-    parser.add_argument("-d", "--dataset", type=str,
-                        help="dataset to train on: ['cifar10', 'airbus', 'PickAndPlace', 'gym_fetch']", default="")
+    parser.add_argument("-d", "--dataset", type=str, help="dataset to train on: ['cifar10', 'airbus', 'PickAndPlace', 'gym_fetch']", default="")
     parser.add_argument("-n", "--num_epochs", type=int, help="total number of epochs to run", default=250)
     parser.add_argument("-z", "--z_dim", type=int, help="latent dimensions", default=256)
     parser.add_argument("-l", "--lr", type=float, help="learning rate", default=2e-4)

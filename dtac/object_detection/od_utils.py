@@ -104,7 +104,6 @@ class ImagesDataset(torch.utils.data.Dataset):
 
         return image, label_matrix
 
-
 def intersection_over_union(boxes_preds, boxes_labels, box_format='midpoint'):
     """
     Calculates intersection over union
@@ -296,6 +295,79 @@ def mean_average_precision(
 
     return sum(average_precisions) / len(average_precisions)
 
+def cal_loss(
+    loader,
+    model,
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+):
+    from dtac.object_detection.yolov8_loss import Loss
+    
+    all_true_boxes = []
+    all_pred_boxes = []
+    loss_fn = Loss(model)
+
+    # make sure model is in eval before get bboxes
+    model.eval()
+    train_idx = 0
+    loss = []
+
+    for batch_idx, (x, labels) in enumerate(loader):
+        batch = {"batch_idx": [], "cls": [], "bboxes": []}
+
+        x = x.to(device)
+        labels = labels.to(device)
+
+        batch_size = x.shape[0]
+        true_bboxes = cellboxes_to_boxes(labels)
+        
+        output = model(x)
+        for idx in range(batch_size):
+            for box in true_bboxes[idx]:
+                # many will get converted to 0 pred
+                if box[1] > threshold:
+                    all_true_boxes.append([train_idx] + box)
+
+                    batch["batch_idx"].append(batch_idx)
+                    batch["cls"].append(0)
+                    batch["bboxes"].append(box[2:])
+
+            train_idx += 1
+
+        batch["batch_idx"] = torch.tensor(batch["batch_idx"])
+        batch["cls"] = torch.tensor(batch["cls"])
+        batch["bboxes"] = torch.tensor(batch["bboxes"]).view(-1, 4)
+        l, _, pred_bboxes, prob = loss_fn(output, batch)
+        loss.append(l.item())
+
+        pred_bboxes_list = []
+        for enu, pred in enumerate(pred_bboxes): # 64, 4116, 4
+            cat = torch.cat((torch.zeros((pred.shape[0], 1), device=device), prob[enu], pred), dim=1)
+            # print(cat.shape) # 4116, 6
+            pred_bboxes_list.append(cat.tolist()) # [class_pred, prob_score, x1, y1, x2, y2]
+
+        for idx in range(batch_size):
+            nms_boxes = non_max_suppression(
+                pred_bboxes_list[idx],
+                iou_threshold=iou_threshold,
+                threshold=threshold,
+                box_format=box_format,
+            )
+
+            for nms_box in nms_boxes:
+                all_pred_boxes.append([train_idx] + nms_box)
+
+            train_idx += 1
+
+    loss = sum(loss) / len(loss)
+    # make sure model is back in train mode
+    model.train()
+
+    return loss, all_pred_boxes, all_true_boxes
+
 def get_bboxes(
     loader,
     model,
@@ -331,7 +403,6 @@ def get_bboxes(
                 box_format=box_format,
             )
 
-
             #if batch_idx == 0 and idx == 0:
             #    plot_image(x[idx].permute(1,2,0).to("cpu"), nms_boxes)
             #    print(nms_boxes)
@@ -348,7 +419,6 @@ def get_bboxes(
 
     model.train()
     return all_pred_boxes, all_true_boxes
-
 
 def get_bboxes_AE(
     loader,
@@ -377,7 +447,7 @@ def get_bboxes_AE(
 
         ### encode and decode data
         with torch.no_grad():
-            if joint:
+            if joint: 
                 x = AE(x)[0]
             else:
                 x1 = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
@@ -416,7 +486,6 @@ def get_bboxes_AE(
 
     AE.train()
     return all_pred_boxes, all_true_boxes
-
 
 def convert_cellboxes(predictions, S=7, C=3):
     """
