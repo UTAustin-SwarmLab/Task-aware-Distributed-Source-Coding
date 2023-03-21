@@ -206,7 +206,7 @@ class Loss:
         loss[1] *= 0.5  # cls gain
         loss[2] *= 1.5  # dfl gain
 
-        return loss.sum() * batch_size, loss.detach(), pred_bboxes, torch.exp(pred_scores).view(batch_size, -1, 1) # loss(box, cls, dfl)
+        return loss.sum(), loss.detach() #, pred_bboxes, torch.exp(pred_scores).view(batch_size, -1, 1) # loss(box, cls, dfl)
 
 
 def train(cfg=DEFAULT_CFG, use_python=False):

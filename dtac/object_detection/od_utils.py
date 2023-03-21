@@ -298,6 +298,7 @@ def mean_average_precision(
 def cal_loss(
     loader,
     model,
+    Yolomodel,
     iou_threshold,
     threshold,
     pred_format="cells",
@@ -305,7 +306,8 @@ def cal_loss(
     device="cuda",
 ):
     from dtac.object_detection.yolov8_loss import Loss
-    
+    from ultralytics.yolo.utils import ops
+
     all_true_boxes = []
     all_pred_boxes = []
     loss_fn = Loss(model)
@@ -319,50 +321,65 @@ def cal_loss(
         batch = {"batch_idx": [], "cls": [], "bboxes": []}
 
         x = x.to(device)
+        x = F.interpolate(x, size=(512, 512))
+        x_np = x.cpu().numpy().transpose(0, 2, 3, 1)
+        assert max(x_np[0].flatten()) >= 1.0, "Image normalized"
         labels = labels.to(device)
 
         batch_size = x.shape[0]
         true_bboxes = cellboxes_to_boxes(labels)
         
         output = model(x)
+
         for idx in range(batch_size):
             for box in true_bboxes[idx]:
                 # many will get converted to 0 pred
                 if box[1] > threshold:
                     all_true_boxes.append([train_idx] + box)
+                    # print("box", box) # [0.0, 1.0, 0.7441406846046448, 0.1533203125, 0.26171875, 0.2089843899011612]
 
                     batch["batch_idx"].append(batch_idx)
                     batch["cls"].append(0)
                     batch["bboxes"].append(box[2:])
 
+            results = Yolomodel(x_np[idx])
+            Yolomodel.predictor.args.verbose = False
+
+            for result in results:
+                boxes = result.boxes  # Boxes object for bbox outputs
+                for ind, _ in enumerate(boxes.cls):
+                    if boxes.conf[ind] > threshold:
+                        pred_box = torch.cat((torch.ones(1, 1).to(device)*train_idx, boxes.cls[ind].view(-1, 1), boxes.conf[ind].view(-1, 1), boxes.xywhn[ind].view(-1, 4)), dim=1).view(-1).tolist()
+                        all_pred_boxes.append(pred_box)
+
             train_idx += 1
 
         batch["batch_idx"] = torch.tensor(batch["batch_idx"])
         batch["cls"] = torch.tensor(batch["cls"])
-        batch["bboxes"] = torch.tensor(batch["bboxes"]).view(-1, 4)
-        l, _, pred_bboxes, prob = loss_fn(output, batch)
+        batch["bboxes"] = torch.tensor(batch["bboxes"]).view(-1, 4) ### xywhn
+        l, _ = loss_fn(output, batch)
         loss.append(l.item())
 
-        pred_bboxes_list = []
-        for enu, pred in enumerate(pred_bboxes): # 64, 4116, 4
-            cat = torch.cat((torch.zeros((pred.shape[0], 1), device=device), prob[enu], pred), dim=1)
-            # print(cat.shape) # 4116, 6
-            pred_bboxes_list.append(cat.tolist()) # [class_pred, prob_score, x1, y1, x2, y2]
+        # pred_bboxes_list = []
+        # for enu, pred in enumerate(pred_bboxes): # 64, 4116, 4
+        #     cat = torch.cat((torch.zeros((pred.shape[0], 1), device=device), prob[enu], pred), dim=1)
+        #     # print(cat.shape) # 4116, 6
+        #     pred_bboxes_list.append(cat.tolist()) # [class_pred, prob_score, x1, y1, x2, y2]
 
-        for idx in range(batch_size):
-            nms_boxes = non_max_suppression(
-                pred_bboxes_list[idx],
-                iou_threshold=iou_threshold,
-                threshold=threshold,
-                box_format=box_format,
-            )
+        # for idx in range(batch_size):
+        #     nms_boxes = non_max_suppression(
+        #         pred_bboxes_list[idx],
+        #         iou_threshold=iou_threshold,
+        #         threshold=threshold,
+        #         box_format=box_format,
+        #     )
 
-            for nms_box in nms_boxes:
-                all_pred_boxes.append([train_idx] + nms_box)
+        #     for nms_box in nms_boxes:
+        #         all_pred_boxes.append([train_idx] + nms_box)
 
-            train_idx += 1
+        #     train_idx += 1
 
-    loss = sum(loss) / len(loss)
+    loss = sum(loss) / len(loss) / batch_size
     # make sure model is back in train mode
     model.train()
 

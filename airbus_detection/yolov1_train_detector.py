@@ -248,7 +248,6 @@ def predictions():
         pred_boxes, target_boxes = get_bboxes(
             test_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
         )
-        # print(pred_boxes[:5], target_boxes[:5]) [train_idx, class_idx, prob, x1, y1, x2, y2]
         test_mean_avg_prec = mean_average_precision(
             pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
         )
@@ -263,7 +262,6 @@ def predictionsV8():
 
     task_model = YOLO(TASK_MODEL_FILE)
     task_model.to(DEVICE)
-    # model = task_model.model.to(DEVICE)
     model = task_model.model
     # print(model.args)
     optimizer = optim.Adam(
@@ -302,31 +300,35 @@ def predictionsV8():
 
     for epoch in range(1):
         model.eval()
+        iou = 0.5
+        thres = 0.2
         ### test on train set
-        # pred_boxes, target_boxes = get_bboxes(
-        #     train_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
-        # )
-
-        # mean_avg_prec = mean_average_precision(
-        #     pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
-        # )
-        # print(f"Train mAP: {mean_avg_prec}")
-
-        ### test on test set
-        # task_model.val()
-
-        pred_boxes, target_boxes = cal_loss(
-            train_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
+        loss, pred_boxes, target_boxes = cal_loss(
+            train_loader, model, task_model, iou_threshold=iou, threshold=thres, device=DEVICE
         )
-
         # pred_boxes, target_boxes = get_bboxes(
         #     train_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
         # )
 
-        test_mean_avg_prec = mean_average_precision(
+        mean_avg_prec = mean_average_precision(
             pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
         )
+        print(f"Train mAP: {mean_avg_prec}")
+
+        ### test on test set
+
+        loss, pred_boxes, target_boxes = cal_loss(
+            test_loader, model, task_model, iou_threshold=iou, threshold=thres, device=DEVICE
+        )
+        # pred_boxes, target_boxes = get_bboxes(
+        #     test_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
+        # )
+        test_mean_avg_prec = mean_average_precision(
+            pred_boxes, target_boxes, iou_threshold=iou, box_format="midpoint"
+        )
+        # print(pred_boxes[:5], target_boxes[:5]) [train_idx, class_idx, prob, x, y, w, h]
         print(f"Test mAP: {test_mean_avg_prec}")
+        print(f"Test loss: {loss}")
 
 
 
