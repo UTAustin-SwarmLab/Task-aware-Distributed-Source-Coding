@@ -21,26 +21,25 @@ if torch.cuda.is_available():
 np.random.seed(seed)
 random.seed(seed)
 
-# Create TILE_WIDTHxTILE_HEIGHT tiles with 64 pix overlap
-TILE_WIDTH = 512
-TILE_HEIGHT = 512
-TILE_OVERLAP = 64
+TILE_WIDTH = 224
+TILE_HEIGHT = 224
+TILE_OVERLAP = 28
 TRUNCATED_PERCENT = 0.3
 print(f"Tile size: {TILE_WIDTH}x{TILE_HEIGHT} with {TILE_OVERLAP} pix overlap and {TRUNCATED_PERCENT} truncated percent")
 
 files_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/train/'
 test_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/val/'
 
-LEARNING_RATE = 2e-5
-device_num = 0
+LEARNING_RATE = 1e-4 # 2e-5
+device_num = 5
 DEVICE = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64 # 64 in original paper but resource exhausted error otherwise.
 WEIGHT_DECAY = 0
-EPOCHS = 1000
+EPOCHS = 200
 NUM_WORKERS = 2
 PIN_MEMORY = True
 LOAD_MODEL = False
-resize_shape = 112
+resize_shape = 224
 MODEL_PATH = f"./models/YoloV1_{TILE_WIDTH}x{TILE_HEIGHT}/"
 if not os.path.exists(MODEL_PATH):
     os.makedirs(MODEL_PATH)
@@ -90,18 +89,24 @@ def train_fn(train_loader, model, optimizer, loss_fn):
         
     print(f"Mean loss was {sum(mean_loss) / len(mean_loss)}")
 
+p = 0.2
 transform_img = A.Compose([
     A.Resize(width=resize_shape, height=resize_shape),
+    # A.augmentations.crops.transforms.Crop(x_min=0, y_min=0, x_max=64, y_max=112, p=1.0),
     A.Resize(width=448, height=448),
-    A.Blur(p=0.01, blur_limit=(3, 7)), 
-    A.MedianBlur(p=0.01, blur_limit=(3, 7)), A.ToGray(p=0.01), 
-    A.CLAHE(p=0.01, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+    A.Blur(p=p, blur_limit=(3, 7)), 
+    A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+    A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
     ToTensorV2(p=1.0)
 ])
 
 test_transform_img = A.Compose([
     A.Resize(width=resize_shape, height=resize_shape),
+    # A.augmentations.crops.transforms.Crop(x_min=0, y_min=0, x_max=64, y_max=112, p=1.0),
     A.Resize(width=448, height=448),
+    A.Blur(p=p, blur_limit=(3, 7)), 
+    A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+    A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
     ToTensorV2(p=1.0)
 ])
 
@@ -155,6 +160,7 @@ def main():
         if epoch % 10 == 0 or epoch == EPOCHS - 1:
             ### Test
             model.eval()
+            ############# do not need to train in test ###############
             # train_fn(test_loader, model, optimizer, loss_fn)
 
             ### Calculate test mAP
@@ -178,19 +184,19 @@ def main():
             )
             print(f"Test mAP: {test_mean_avg_prec}")
 
-            if (mean_avg_prec >= 0.9 and test_mean_avg_prec >= 0.6) or epoch == EPOCHS - 1 or epoch == 0:
+            if (mean_avg_prec >= 0.80 and test_mean_avg_prec >= 0.80) or epoch == EPOCHS - 1 or epoch % 50 == 0:
                 checkpoint = {
                         "state_dict": model.state_dict(),
                         # "optimizer": optimizer.state_dict(),
                         "Train mAP": mean_avg_prec,
                         "Test mAP": test_mean_avg_prec,
                 }
-                save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_noaug_resize{resize_shape}_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
-
+                save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_aug_{p}_{p}_resize{resize_shape}_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
 
 def predictions():
     LOAD_MODEL = True
-    TASK_MODEL_FILE = MODEL_PATH + f"yolov1_512x512_ep80_map0.98_0.99.pth"
+    # TASK_MODEL_FILE = MODEL_PATH + f"yolov1_512x512_ep80_map0.98_0.99.pth"
+    TASK_MODEL_FILE = MODEL_PATH + f"yolov1_aug_0.50.5_resize112_512x512_ep80_map0.99_0.93.pth"
     # TASK_MODEL_FILE = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
 
 
@@ -253,20 +259,17 @@ def predictions():
         )
         print(f"Test mAP: {test_mean_avg_prec}")
 
-
 def predictionsV8():
     from ultralytics import YOLO
 
     LOAD_MODEL = True
-    TASK_MODEL_FILE = "./runs/detect/train10/weights/best.pt"
+    TASK_MODEL_FILE = "./runs/detect/train/weights/best.pt"
 
     task_model = YOLO(TASK_MODEL_FILE)
     task_model.to(DEVICE)
     model = task_model.model
-    # print(model.args)
-    optimizer = optim.Adam(
-        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
-    )
+    model.eval()
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     train_dataset = ImagesDataset(
         transform=transform_img,
@@ -301,7 +304,8 @@ def predictionsV8():
     for epoch in range(1):
         model.eval()
         iou = 0.5
-        thres = 0.2
+        thres = 0.4
+        print(f"iou: {iou}, thres: {thres}")
         ### test on train set
         loss, pred_boxes, target_boxes = cal_loss(
             train_loader, model, task_model, iou_threshold=iou, threshold=thres, device=DEVICE
@@ -316,7 +320,6 @@ def predictionsV8():
         print(f"Train mAP: {mean_avg_prec}")
 
         ### test on test set
-
         loss, pred_boxes, target_boxes = cal_loss(
             test_loader, model, task_model, iou_threshold=iou, threshold=thres, device=DEVICE
         )
@@ -328,9 +331,7 @@ def predictionsV8():
         )
         # print(pred_boxes[:5], target_boxes[:5]) [train_idx, class_idx, prob, x, y, w, h]
         print(f"Test mAP: {test_mean_avg_prec}")
-        print(f"Test loss: {loss}")
-
-
+        # print(f"Test loss: {loss}")
 
 def predictions_AE():
     ### load task
@@ -437,8 +438,8 @@ def predictions_AE():
         print(f"Test mAP: {test_mean_avg_prec}")
 
 if __name__ == "__main__":
-    # main()
+    main()
     # predictions()
     # predictions_AE()
 
-    predictionsV8()
+    # predictionsV8()

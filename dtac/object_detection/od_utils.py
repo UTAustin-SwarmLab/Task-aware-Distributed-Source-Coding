@@ -7,6 +7,8 @@ import numpy as np
 import random
 import os
 
+from dtac.object_detection.yolov8_loss import Loss
+
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
@@ -297,7 +299,7 @@ def mean_average_precision(
 
 def cal_loss(
     loader,
-    model,
+    task_tr_model,
     Yolomodel,
     iou_threshold,
     threshold,
@@ -305,15 +307,12 @@ def cal_loss(
     box_format="midpoint",
     device="cuda",
 ):
-    from dtac.object_detection.yolov8_loss import Loss
-    from ultralytics.yolo.utils import ops
-
     all_true_boxes = []
     all_pred_boxes = []
-    loss_fn = Loss(model)
+    loss_fn = Loss(task_tr_model)
 
     # make sure model is in eval before get bboxes
-    model.eval()
+    task_tr_model.eval()
     train_idx = 0
     loss = []
 
@@ -329,7 +328,10 @@ def cal_loss(
         batch_size = x.shape[0]
         true_bboxes = cellboxes_to_boxes(labels)
         
-        output = model(x)
+        output = task_tr_model(x)
+        for o in output[1]:
+            print("o", o.shape)
+        input("wait")
 
         for idx in range(batch_size):
             for box in true_bboxes[idx]:
@@ -338,18 +340,24 @@ def cal_loss(
                     all_true_boxes.append([train_idx] + box)
                     # print("box", box) # [0.0, 1.0, 0.7441406846046448, 0.1533203125, 0.26171875, 0.2089843899011612]
 
-                    batch["batch_idx"].append(batch_idx)
+                    batch["batch_idx"].append(idx)
                     batch["cls"].append(0)
                     batch["bboxes"].append(box[2:])
 
-            results = Yolomodel(x_np[idx])
+            if Yolomodel.predictor is None:
+                results = Yolomodel(x_np[idx])
             Yolomodel.predictor.args.verbose = False
+            Yolomodel.predictor.args.conf = threshold
+            Yolomodel.predictor.args.iou = iou_threshold
+
+            results = Yolomodel(x_np[idx])
 
             for result in results:
                 boxes = result.boxes  # Boxes object for bbox outputs
                 for ind, _ in enumerate(boxes.cls):
                     if boxes.conf[ind] > threshold:
-                        pred_box = torch.cat((torch.ones(1, 1).to(device)*train_idx, boxes.cls[ind].view(-1, 1), boxes.conf[ind].view(-1, 1), boxes.xywhn[ind].view(-1, 4)), dim=1).view(-1).tolist()
+                        pred_box = torch.cat((torch.ones(1, 1).to(device)*train_idx, boxes.cls[ind].view(-1, 1).to(device), 
+                                              boxes.conf[ind].view(-1, 1).to(device), boxes.xywhn[ind].view(-1, 4).to(device)), dim=1).view(-1).tolist()
                         all_pred_boxes.append(pred_box)
 
             train_idx += 1
@@ -360,30 +368,80 @@ def cal_loss(
         l, _ = loss_fn(output, batch)
         loss.append(l.item())
 
-        # pred_bboxes_list = []
-        # for enu, pred in enumerate(pred_bboxes): # 64, 4116, 4
-        #     cat = torch.cat((torch.zeros((pred.shape[0], 1), device=device), prob[enu], pred), dim=1)
-        #     # print(cat.shape) # 4116, 6
-        #     pred_bboxes_list.append(cat.tolist()) # [class_pred, prob_score, x1, y1, x2, y2]
-
-        # for idx in range(batch_size):
-        #     nms_boxes = non_max_suppression(
-        #         pred_bboxes_list[idx],
-        #         iou_threshold=iou_threshold,
-        #         threshold=threshold,
-        #         box_format=box_format,
-        #     )
-
-        #     for nms_box in nms_boxes:
-        #         all_pred_boxes.append([train_idx] + nms_box)
-
-        #     train_idx += 1
-
-    loss = sum(loss) / len(loss) / batch_size
-    # make sure model is back in train mode
-    model.train()
+    loss = sum(loss) / len(loss)
 
     return loss, all_pred_boxes, all_true_boxes
+
+def get_bboxes_v8(
+    loader,
+    AE,
+    Yolomodel,
+    iou_threshold,
+    threshold,
+    joint = True,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+    
+    all_true_boxes = []
+    all_pred_boxes = []
+
+    # make sure model is in eval before get bboxes
+    AE.eval()
+    train_idx = 0
+
+    for batch_idx, (x, labels) in enumerate(loader):
+        x = x.to(device)
+        x /= 255.0
+        
+        with torch.no_grad():
+            if joint:
+                x = AE(x)[0]
+            else:
+                x1 = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2 = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+                x = AE(x1, x2, x)[0]
+
+            x = x.clip(0, 1) * 255.0
+            x = F.interpolate(x, size=(512, 512))
+            x_np = x.cpu().numpy().transpose(0, 2, 3, 1)
+            assert max(x_np[0].flatten()) >= 1.0, "Image normalized"
+        
+        labels = labels.to(device)
+        true_bboxes = cellboxes_to_boxes(labels)
+        batch_size = x.shape[0]
+
+        for idx in range(batch_size):
+            for box in true_bboxes[idx]:
+                # many will get converted to 0 pred
+                if box[1] > threshold:
+                    all_true_boxes.append([train_idx] + box)
+
+            results = Yolomodel(x_np[idx])
+            Yolomodel.predictor.args.verbose = False
+            Yolomodel.predictor.args.conf = threshold
+            Yolomodel.predictor.args.iou = iou_threshold
+
+            # results = Yolomodel(x_np[idx])
+
+            for result in results:
+                boxes = result.boxes  # Boxes object for bbox outputs
+                for ind, _ in enumerate(boxes.cls):
+                    if boxes.conf[ind] > threshold:
+                        pred_box = torch.cat((torch.ones(1, 1).to(device)*train_idx, boxes.cls[ind].view(-1, 1).to(device), \
+                                              boxes.conf[ind].view(-1, 1).to(device), boxes.xywhn[ind].view(-1, 4).to(device)), dim=1).view(-1).tolist()
+                        all_pred_boxes.append(pred_box)
+
+            train_idx += 1
+
+    # make sure model is back in train mode
+    AE.train()
+
+    return all_pred_boxes, all_true_boxes
+
 
 def get_bboxes(
     loader,
@@ -460,6 +518,7 @@ def get_bboxes_AE(
 
     for batch_idx, (x, labels) in enumerate(loader):
         x = x.to(device) / 255.0
+        
         labels = labels.to(device)
 
         ### encode and decode data
@@ -503,6 +562,75 @@ def get_bboxes_AE(
 
     AE.train()
     return all_pred_boxes, all_true_boxes
+
+
+def get_bboxes_localAE(
+    loader,
+    task_model,
+    AE,
+    joint:bool, 
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+    all_pred_boxes = []
+    all_true_boxes = []
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+
+    for batch_idx, (x, labels) in enumerate(loader):
+        x, labels = x.to(device), labels.to(device)
+        x = task_model.darknet(x)
+        x = F.pad(x, (0, 1, 0, 1, 0, 0, 0, 0), "constant", 0)
+
+        ### encode and decode data
+        with torch.no_grad():
+            if joint: 
+                x = AE(x)[0]
+            else:
+                x1 = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2 = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+                x = AE(x1, x2, x)[0]
+
+            if AE.training or task_model.training:
+                print(AE.training, task_model.training)
+                raise KeyError("VAE and task model should be in the training mode")
+        
+            x = x[:, :, :-1, :-1]
+            predictions = task_model.fcs(torch.flatten(x, start_dim=1))
+
+        batch_size = x.shape[0]
+        true_bboxes = cellboxes_to_boxes(labels)
+        bboxes = cellboxes_to_boxes(predictions)
+
+        for idx in range(batch_size):
+            nms_boxes = non_max_suppression(
+                bboxes[idx],
+                iou_threshold=iou_threshold,
+                threshold=threshold,
+                box_format=box_format,
+            )
+
+            for nms_box in nms_boxes:
+                all_pred_boxes.append([train_idx] + nms_box)
+
+            for box in true_bboxes[idx]:
+                # many will get converted to 0 pred
+                if box[1] > threshold:
+                    all_true_boxes.append([train_idx] + box)
+
+            train_idx += 1
+
+    AE.train()
+    return all_pred_boxes, all_true_boxes
+
 
 def convert_cellboxes(predictions, S=7, C=3):
     """
@@ -563,3 +691,69 @@ def load_checkpoint(checkpoint, model, optimizer):
     model.load_state_dict(checkpoint["state_dict"])
     # optimizer.load_state_dict(checkpoint["optimizer"]
     return model, optimizer
+
+
+### main function for debugging
+if __name__ == '__main__':
+    import albumentations as A
+    from albumentations.pytorch import ToTensorV2
+    import pandas as pd
+    from torch.utils.data import DataLoader
+    from ultralytics import YOLO
+    from dtac.object_detection.yolo_model import YoloV1
+    from dtac.gym_fetch.ClassAE import *
+
+    size = 112
+    file_parent_dir = f'../../airbus_dataset/512x512_overlap64_percent0.3_/'
+    files_dir = file_parent_dir + 'train/' # 'train/'
+    images = [image for image in sorted(os.listdir(files_dir))
+                if image[-4:]=='.jpg']
+    annots = []
+    for image in images:
+        annot = image[:-4] + '.txt'
+        annots.append(annot)
+    
+    device_num = 7
+    device = torch.device("cpu") if device_num <= -1 else torch.device("cuda:" + str(device_num))
+    images = pd.Series(images, name='images')
+    annots = pd.Series(annots, name='annots')
+    df = pd.concat([images, annots], axis=1)
+    df = pd.DataFrame(df)
+
+    p = 0.01
+    transform_img = A.Compose([
+        A.Resize(width=size, height=size),
+        # A.Blur(p=p, blur_limit=(3, 7)), 
+        # A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+        # A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+        ToTensorV2(p=1.0)
+    ])
+    test_dataset = ImagesDataset(
+        files_dir=files_dir,
+        df=df,
+        transform=transform_img
+    )
+    g = torch.Generator()
+    g.manual_seed(0)
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=128,
+        shuffle=True,
+        drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=g
+    )
+
+    AE = E1D1((3, size, size), 96, False, 4-2, int(128/(2+1)), 2, 128).to(device)
+    AE.load_state_dict(torch.load("../../airbus_detection/models/airbus_96_taskaware_AE_JointCNNBasedVAE64x112_kl0.0_rec1000.0_task0.1_bs64_cov0.0_lr0.0001_seed2/DVAE_awa-2399.pth"))
+    
+    # task_model_path = "./runs/train/weights/best.pt"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_512x512_ep80_map0.98_0.99.pth"
+    task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
+    checkpoint = torch.load(task_model_path)
+    task_model.load_state_dict(checkpoint["state_dict"])
+    print("=> Loading checkpoint\n", "Train mAP:", checkpoint['Train mAP'], "\tTest mAP:", checkpoint['Test mAP'])
+    task_model.eval()
+
+    pred, true = get_bboxes_AE(test_loader, task_model, AE, joint=True, iou_threshold=0.5, threshold=0.4, device=device)
+    import pdb; pdb.set_trace()

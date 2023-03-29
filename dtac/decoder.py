@@ -8,7 +8,7 @@ from collections import OrderedDict
 
 class ResDecoder(nn.Module):
     def __init__(self, output_shape, feature_dim, n_upsamples=4, n_res_blocks=3, final_upsample_filters=16,
-                 num_filters=(32, 64, 128, 256), n_hidden_layers=2, hidden_size=128):
+                 num_filters=(32, 64), n_hidden_layers=2, hidden_size=128): # , 128, 256
         super().__init__()
 
         assert len(output_shape) == 3

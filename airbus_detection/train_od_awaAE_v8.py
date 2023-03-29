@@ -9,24 +9,29 @@ import torchvision.utils as vutils
 import random
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from dtac.object_detection.yolov8_loss import Loss
 ### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
+from ultralytics import YOLO
 import argparse
 
 from dtac.gym_fetch.ClassAE import *
-from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
 
-
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                  device=0, save_interval=5, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448):
+                  device=0, save_interval=50, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448):
     ### set paths
     if norm_sample:
         model_type = "VAE"
     else:
         model_type = "AE"
 
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_512x512_ep80_map0.98_0.99.pth"
+    LOG_DIR = f'./summary/{dataset}_{z_dim}_v8_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    fig_dir = f'./figures/{dataset}_{z_dim}_v8_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    task_model_path = "./runs/detect/train/weights/best.pt"
+
+    model_path = f'./models/{dataset}_{z_dim}_v8_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
     ### Set the random seed
     if seed != -1:
@@ -42,7 +47,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     ### Load the dataset
     if dataset == "airbus":
-        files_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/train/'
+        file_parent_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/'
+        files_dir = file_parent_dir + 'train/'
         images = [image for image in sorted(os.listdir(files_dir))
                         if image[-4:]=='.jpg']
         annots = []
@@ -56,11 +62,14 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         df = pd.DataFrame(df)
 
         print(f"resize to {height}x{height} then 448x448")
+        print("testing set: ", files_dir.split('/')[-2])
+        p = 0.01
+        print("p: ", p)
         transform_img = A.Compose([
             A.Resize(width=height, height=height),
-            # A.Blur(p=0.5, blur_limit=(3, 7)), 
-            # A.MedianBlur(p=0.5, blur_limit=(3, 7)), A.ToGray(p=0.5), 
-            # A.CLAHE(p=0.5, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+            A.Blur(p=p, blur_limit=(3, 7)), 
+            A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+            A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
             ToTensorV2(p=1.0)
         ])
         train_dataset = ImagesDataset(
@@ -83,7 +92,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         cropped_image_size = height
 
         ### laod test dataset
-        test_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/val/'
+        test_dir = file_parent_dir + 'val/'
         test_images = [image for image in sorted(os.listdir(test_dir))
                                 if image[-4:]=='.jpg']
         test_annots = []
@@ -103,7 +112,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             df=test_df,
             files_dir=test_dir
         )
-
         test_loader = DataLoader(
             dataset=test_dataset,
             batch_size=batch_size,
@@ -115,14 +123,12 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     else:
         raise NotImplementedError
 
-    ### load task model
-    task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
-    checkpoint = torch.load(task_model_path)
-    task_model.load_state_dict(checkpoint["state_dict"])
-    print("=> Loading checkpoint\n", "Train mAP:", checkpoint['Train mAP'], "\tTest mAP:", checkpoint['Test mAP'])
-    task_model.eval()
-    for param in task_model.parameters():
-        param.requires_grad = False
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    if not os.path.exists(fig_dir):
+        os.makedirs(fig_dir)
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
 
     ### distributed models
     if vae_model == "CNNBasedVAE":
@@ -142,20 +148,46 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     else:
         DVAE_awa = ResNetE1D1().to(device)
 
-    DVAE_awa.load_state_dict(torch.load("./models/" + "airbus_96_taskaware_AE_JointCNNBasedVAE64x112_kl0.0_rec1000.0_task0.1_bs64_cov0.0_lr0.0001_seed2/DVAE_awa-2399.pth"))
-    DVAE_awa.eval()
-    # DVAE_awa = nn.Identity()
-
-    # optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
+    # DVAE_awa = nn.Identity().to(device)
+    optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
     cur_iter = 0
-    loss_fn = YoloLoss()
-    for ep in range(1):
+    iou = 0.5
+    conf = 0.4
+    print(f"iou: {iou}, thres: {conf}")
+
+    for ep in range(num_epochs):
+        DVAE_awa.train()
+
+        ### load task model
+        task_model_v8 = YOLO(task_model_path)
+        task_model_v8.to(device)
+        task_model = task_model_v8.model.to(device)
+        # print("task model: ", task_model_path)
+        # task_model.eval()
+        loss_fn = Loss(task_model)
+        # for param in task_model.parameters():
+        #     param.requires_grad = False
+
         ep_loss = []
         
-        for batch_idx, (obs, out) in enumerate(train_loader):
-            obs_112_0_255, out = obs.to(device), out.to(device)
+        for batch_idx, (obs, labels) in enumerate(train_loader):
+            obs_112_0_255, labels = obs.to(device), labels.to(device)
             obs = obs_112_0_255 / 255.0
+            bs = int(obs.shape[0])
+        
+            batch = {"batch_idx": [], "cls": [], "bboxes": []}
+            true_bboxes = cellboxes_to_boxes(labels)
+            for idx in range(bs):
+                for box in true_bboxes[idx]:
+                    if box[1] > conf:
+                        batch["batch_idx"].append(idx)
+                        batch["cls"].append(0)
+                        batch["bboxes"].append(box[2:]) 
+
+            batch["batch_idx"] = torch.tensor(batch["batch_idx"])
+            batch["cls"] = torch.tensor(batch["cls"])
+            batch["bboxes"] = torch.tensor(batch["bboxes"]).view(-1, 4) ### xywhn
             
             if "Joint" not in vae_model:
                 o1_batch = obs[:, :, :cropped_image_size_w, :cropped_image_size_h]
@@ -163,30 +195,31 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                 obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, obs)
             else:
                 obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(obs)
-                # obs_pred = DVAE_awa(obs)
 
             obs_pred_112_0_255 = obs_pred.clip(0, 1) * 255.0 ##################### important: clip the value to 0-255
-            obs_pred = F.interpolate(obs_pred_112_0_255, size=(448, 448)) ### resize to 448x448
-            out_pred = task_model(obs_pred)
-            dt_output = task_model.darknet(obs_pred)
-            print(dt_output.shape)
-            print(out_pred.shape)
-            input()
-            task_loss = loss_fn(out_pred, out)
+            obs_pred_512_0_255 = F.interpolate(obs_pred_112_0_255, size=(512, 512)) ### resize to 448x448
+            out_pred = task_model(obs_pred_512_0_255)
+
+            task_loss, _ = loss_fn(out_pred, batch)
             loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
+
+            ## check models' train/eval modes
+            if (not DVAE_awa.training) or task_model.training:
+                print(DVAE_awa.training, task_model.training)
+                raise KeyError("Models' train/eval modes are not correct")
         
-            # optimizer.zero_grad()
-            # loss.backward()
-            # optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
             ### log tensorboard
-            # print('loss', loss.item(), cur_iter)
-            # print('task', task_loss.item(), cur_iter)
-            # print('Rec', loss_rec.item(), cur_iter)
-            # print('kl1/var', kl1.item(), cur_iter)
-            # print('kl2/invar', kl2.item(), cur_iter)
-            # print('cov', loss_cor.item(), cur_iter)
-            # print('PSNR', psnr.item(), cur_iter)
+            summary_writer.add_scalar('loss', loss, cur_iter)
+            summary_writer.add_scalar('task', task_loss, cur_iter)
+            summary_writer.add_scalar('Rec', loss_rec, cur_iter)
+            summary_writer.add_scalar('kl1/var', kl1, cur_iter)
+            summary_writer.add_scalar('kl2/invar', kl2, cur_iter)
+            summary_writer.add_scalar('cov', loss_cor, cur_iter)
+            summary_writer.add_scalar('PSNR', psnr, cur_iter)
 
             ep_loss.append(loss.item())
             cur_iter += 1
@@ -195,48 +228,50 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("Epoch: {}, Loss: {}".format(ep, np.mean(ep_loss)))
 
         ### save model
-        if (ep + 1) % save_interval == 0 or (ep + 1) <= 10 or ep == 0:
+        if (ep + 1) % save_interval == 0 or (ep + 1) == 10 or ep == 0:
+            print("Evaluation on train set")
             ### test on train set
-            # if "Joint" in vae_model:
-            #     pred_boxes, target_boxes = get_bboxes_AE(
-            #         train_loader, task_model, DVAE_awa, True, iou_threshold=0.5, threshold=0.4, device=device,
-            #         cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
-            #     )
-            # else:
-            #     pred_boxes, target_boxes = get_bboxes_AE(
-            #         train_loader, task_model, DVAE_awa, False, iou_threshold=0.5, threshold=0.4, device=device,
-            #         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
-            #     )
-            # train_mean_avg_prec = mean_average_precision(
-            #     pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
-            # )
-            # print('train_mean_avg_prec', train_mean_avg_prec, ep)    
-            # print("pred_boxes", pred_boxes[:10])
-            # print("target_boxes", target_boxes[:10])
+            if "Joint" in vae_model:
+                pred_boxes, target_boxes = get_bboxes_v8(train_loader, DVAE_awa, task_model_v8, iou, conf, True, device=device, 
+                                        cropped_image_size_w = cropped_image_size_h, cropped_image_size_h = cropped_image_size_h)
+            else:
+                pred_boxes, target_boxes = get_bboxes_v8(train_loader, DVAE_awa, task_model_v8, iou, conf, False, device=device,
+                                        cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
+
+            train_mean_avg_prec = mean_average_precision(
+                pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
+            )
+            summary_writer.add_scalar(f'train_mean_avg_prec_{iou}_{conf}', train_mean_avg_prec, ep)  
+            print(train_mean_avg_prec, ep)
 
             ### test on test set
+            print("Evaluation on test set")
             if "Joint" in vae_model:
-                pred_boxes, target_boxes = get_bboxes_AE(
-                    test_loader, task_model, DVAE_awa, True, iou_threshold=0.5, threshold=0.1, device=device,
-                    cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
-                )
+                pred_boxes, target_boxes = get_bboxes_v8(test_loader, DVAE_awa, task_model_v8, iou, conf, True, device=device, 
+                                        cropped_image_size_w = cropped_image_size_h, cropped_image_size_h = cropped_image_size_h)
             else:
-                pred_boxes, target_boxes = get_bboxes_AE(
-                    test_loader, task_model, DVAE_awa, False, iou_threshold=0.5, threshold=0.4, device=device,
-                    cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
-                )
+                pred_boxes, target_boxes = get_bboxes_v8(test_loader, DVAE_awa, task_model_v8, iou, conf, False, device=device,
+                                        cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
+
             test_mean_avg_prec = mean_average_precision(
                 pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
             )
-            print('test_mean_avg_prec', test_mean_avg_prec, ep)
-            print("pred_boxes", pred_boxes[:10])
-            print("target_boxes", target_boxes[:20])
+            summary_writer.add_scalar(f'test_mean_avg_prec_{iou}_{conf}', test_mean_avg_prec, ep)
+            print(test_mean_avg_prec, ep)
+        
+            torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')  
+
+        ### export figure
+        if (ep + 1) % save_interval == 0 or ep == num_epochs - 1 or ep == 0:
+            max_imgs = min(batch_size, 8)
+            vutils.save_image(torch.cat([obs[:max_imgs], obs_pred[:max_imgs]], dim=0).data.cpu(),
+                '{}/image_{}.jpg'.format(fig_dir, ep), nrow=8)
 
     return
 
 if __name__ == "__main__":
     """        
-    python test3.py --dataset airbus --device 0 -l 1e-4 -n 3000 -r 1000.0 -k 0.0 -t 0.1 -z 96 -bs 32 --seed 2 -corpen 0.0 -vae JointCNNBasedVAE -ns False -wt 64 -ht 112
+    python train_od_awaAE_v8.py --dataset airbus --device 7 -l 1e-4 -n 3000 -r 1000.0 -k 0.0 -t 0.1 -z 96 -bs 64 --seed 2 -corpen 0.0 -vae JointCNNBasedVAE -ns False -wt 64 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

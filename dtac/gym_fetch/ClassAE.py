@@ -58,7 +58,7 @@ class CNNEncoder(nn.Module):
         self.ff_layers = nn.Sequential(ff_layers)
 
     def forward_conv(self, obs):
-        assert obs.max() <= 1 and 0 <= obs.min(), f'Make sure images are in [0, 1]. Get [{obs.min()}, {obs.max()}]'
+        # assert obs.max() <= 1 and 0 <= obs.min(), f'Make sure images are in [0, 1]. Get [{obs.min()}, {obs.max()}]'
         conv = torch.relu(self.conv_layers[0](obs))
         for i in range(1, self.num_layers):
             conv = torch.relu(self.conv_layers[i](conv))
@@ -269,7 +269,11 @@ class E1D1(nn.Module):
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
-            obs_dec = self.dec(z_sample)
+            if self.training:
+                z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
+                obs_dec = self.dec(z_sample)
+            else:
+                obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
 
@@ -433,7 +437,11 @@ class ResE1D1(nn.Module):
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
-            obs_dec = self.dec(z_sample)
+            if self.training:
+                z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
+                obs_dec = self.dec(z_sample)
+            else:
+                obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
 
