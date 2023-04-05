@@ -31,15 +31,15 @@ files_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}
 test_dir = f'../airbus_dataset/{TILE_WIDTH}x{TILE_HEIGHT}_overlap{TILE_OVERLAP}_percent{TRUNCATED_PERCENT}_/val/'
 
 LEARNING_RATE = 1e-4 # 2e-5
-device_num = 5
+device_num = 4
 DEVICE = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 64 # 64 in original paper but resource exhausted error otherwise.
 WEIGHT_DECAY = 0
-EPOCHS = 200
+EPOCHS = 250
 NUM_WORKERS = 2
 PIN_MEMORY = True
-LOAD_MODEL = False
-resize_shape = 224
+LOAD_MODEL = False 
+resize_shape = 112
 MODEL_PATH = f"./models/YoloV1_{TILE_WIDTH}x{TILE_HEIGHT}/"
 if not os.path.exists(MODEL_PATH):
     os.makedirs(MODEL_PATH)
@@ -77,7 +77,7 @@ def train_fn(train_loader, model, optimizer, loss_fn):
     mean_loss = []
     
     for batch_idx, (x, y) in enumerate(loop):
-        x, y = x.to(DEVICE), y.to(DEVICE)
+        x, y = x.to(DEVICE).type(torch.cuda.FloatTensor), y.to(DEVICE).type(torch.cuda.FloatTensor)
         out = model(x)
         loss = loss_fn(out, y)
         mean_loss.append(loss.item())
@@ -89,19 +89,21 @@ def train_fn(train_loader, model, optimizer, loss_fn):
         
     print(f"Mean loss was {sum(mean_loss) / len(mean_loss)}")
 
-p = 0.2
+p = 0.05
 transform_img = A.Compose([
-    A.Resize(width=resize_shape, height=resize_shape),
+    A.RandomResizedCrop(width=resize_shape, height=resize_shape),
+    # A.Resize(width=resize_shape, height=resize_shape),
     # A.augmentations.crops.transforms.Crop(x_min=0, y_min=0, x_max=64, y_max=112, p=1.0),
     A.Resize(width=448, height=448),
     A.Blur(p=p, blur_limit=(3, 7)), 
     A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
     A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
-    ToTensorV2(p=1.0)
-])
+    ToTensorV2(p=1.0)]
+    , bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels'], min_area=500, min_visibility=0.3)
+)
 
 test_transform_img = A.Compose([
-    A.Resize(width=resize_shape, height=resize_shape),
+    # A.Resize(width=resize_shape, height=resize_shape),
     # A.augmentations.crops.transforms.Crop(x_min=0, y_min=0, x_max=64, y_max=112, p=1.0),
     A.Resize(width=448, height=448),
     A.Blur(p=p, blur_limit=(3, 7)), 
@@ -191,14 +193,11 @@ def main():
                         "Train mAP": mean_avg_prec,
                         "Test mAP": test_mean_avg_prec,
                 }
-                save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_aug_{p}_{p}_resize{resize_shape}_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
+                save_checkpoint(checkpoint, filename=MODEL_PATH+f"yolov1_aug_{p}_{p}_rc_resize{resize_shape}_{TILE_WIDTH}x{TILE_HEIGHT}_ep{epoch}_map{mean_avg_prec:.2f}_{test_mean_avg_prec:.2f}.pth")
 
 def predictions():
     LOAD_MODEL = True
-    # TASK_MODEL_FILE = MODEL_PATH + f"yolov1_512x512_ep80_map0.98_0.99.pth"
-    TASK_MODEL_FILE = MODEL_PATH + f"yolov1_aug_0.50.5_resize112_512x512_ep80_map0.99_0.93.pth"
-    # TASK_MODEL_FILE = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
-
+    TASK_MODEL_FILE = MODEL_PATH + f"yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
 
     model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
     optimizer = optim.Adam(

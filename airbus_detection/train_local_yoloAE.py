@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 ### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 import argparse
+from tqdm import tqdm
 
 from dtac.gym_fetch.ClassAE import *
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
@@ -19,7 +20,7 @@ from dtac.object_detection.od_utils import *
 
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                  device=0, save_interval=50, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448):
+                  device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448):
     ### set paths
     if norm_sample:
         model_type = "VAE"
@@ -28,7 +29,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_local_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     # fig_dir = f'./figures/{dataset}_{z_dim}_local_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_aug_0.50.5_resize112_512x512_ep80_map0.99_0.93.pth"
+    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_aug_0.50.5_resize112_512x512_ep80_map0.99_0.93.pth"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
 
     model_path = f'./models/{dataset}_{z_dim}_local_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
@@ -47,7 +49,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     ### Load the dataset
     if dataset == "airbus":
-        file_parent_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/'
+        # file_parent_dir = f'../airbus_dataset/512x512_overlap64_percent0.3_/'
+        file_parent_dir = f'../airbus_dataset/224x224_overlap28_percent0.3_/'
         files_dir = file_parent_dir + 'train/'
         images = [image for image in sorted(os.listdir(files_dir))
                         if image[-4:]=='.jpg']
@@ -65,13 +68,16 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("testing set: ", files_dir.split('/')[-2])
         p = 0.5
         print("p: ", p)
-        transform_img = A.Compose([
+        transform_img = A.Compose(transforms=[
+            # A.Resize(width=height, height=height),
+            A.RandomResizedCrop(width=height, height=height),
             A.Resize(width=448, height=448),
             A.Blur(p=p, blur_limit=(3, 7)), 
             A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
             A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
             ToTensorV2(p=1.0)
-        ])
+        ], bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels'], min_area=500, min_visibility=0.3))
+
         train_dataset = ImagesDataset(
             files_dir=files_dir,
             df=df,
@@ -171,8 +177,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         ep_loss = []
         task_model.eval()
         
-        for batch_idx, (obs, out) in enumerate(train_loader):
-            obs_112_0_255, out = obs.to(device), out.to(device)
+        for batch_idx, (obs, out) in enumerate(tqdm(train_loader)):
+            obs_112_0_255, out = obs.to(device).type(torch.cuda.FloatTensor), out.to(device).type(torch.cuda.FloatTensor)
             dt_output = task_model.darknet(obs_112_0_255) # bs x 1024 x 8 x 8
             # pad to shape bs x 1024 x 8 x 8
             dt_output_pad = F.pad(dt_output, (0, 1, 0, 1, 0, 0, 0, 0), "constant", 0)
@@ -217,22 +223,22 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
         ### save model
         if (ep + 1) % save_interval == 0 or (ep + 1) == 10 or ep == 0:
-            ### test on train set
-            if "Joint" in vae_model:
-                pred_boxes, target_boxes = get_bboxes_localAE(
-                    train_loader, task_model, DVAE_awa, True, iou_threshold=iou, threshold=conf, device=device,
-                    cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
-                )
-            else:
-                pred_boxes, target_boxes = get_bboxes_localAE(
-                    train_loader, task_model, DVAE_awa, False, iou_threshold=iou, threshold=conf, device=device,
-                    cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
-                )
-            train_mean_avg_prec = mean_average_precision(
-                pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
-            )
-            summary_writer.add_scalar(f'train_mean_avg_prec_{iou}_{conf}', train_mean_avg_prec, ep)    
-            print(train_mean_avg_prec, ep)
+            # ### test on train set
+            # if "Joint" in vae_model:
+            #     pred_boxes, target_boxes = get_bboxes_localAE(
+            #         train_loader, task_model, DVAE_awa, True, iou_threshold=iou, threshold=conf, device=device,
+            #         cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
+            #     )
+            # else:
+            #     pred_boxes, target_boxes = get_bboxes_localAE(
+            #         train_loader, task_model, DVAE_awa, False, iou_threshold=iou, threshold=conf, device=device,
+            #         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
+            #     )
+            # train_mean_avg_prec = mean_average_precision(
+            #     pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
+            # )
+            # summary_writer.add_scalar(f'train_mean_avg_prec_{iou}_{conf}', train_mean_avg_prec, ep)    
+            # print(train_mean_avg_prec, ep)
 
             ### test on test set
             if "Joint" in vae_model:

@@ -269,11 +269,12 @@ class E1D1(nn.Module):
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
-            if self.training:
-                z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
-                obs_dec = self.dec(z_sample)
-            else:
-                obs_dec = self.dec(z_sample)
+            # if self.training:
+            #     z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
+            #     obs_dec = self.dec(z_sample)
+            # else:
+            #     obs_dec = self.dec(z_sample)
+            obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
 
@@ -295,11 +296,11 @@ class E1D1(nn.Module):
 
 
 class ResE2D1NonSym(nn.Module):
-    def __init__(self, W: tuple, H: tuple, z_dim1: int, z_dim2: int, norm_sample:bool=True, n_samples: int=4, n_res_blocks: int=3):
+    def __init__(self, size1: tuple, size2: tuple, z_dim1: int, z_dim2: int, norm_sample:bool=True, n_samples: int=4, n_res_blocks: int=3):
         super().__init__()
-        self.enc1 = ResEncoder((3, W, H), z_dim1, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
-        self.enc2 = ResEncoder((3, W, H), z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
-        self.dec = ResDecoder((3, H, H), int((z_dim1 + z_dim2)* 0.75), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc1 = ResEncoder(size1, z_dim1, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc2 = ResEncoder(size2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.dec = ResDecoder((size2[0], size2[-1], size2[-1]), int((z_dim1 + z_dim2)* 0.75), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.norm_sample = norm_sample
 
     def forward(self, obs1, obs2, obs):
@@ -437,11 +438,12 @@ class ResE1D1(nn.Module):
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
-            if self.training:
-                z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
-                obs_dec = self.dec(z_sample)
-            else:
-                obs_dec = self.dec(z_sample)
+            # if self.training:
+            #     z_sample = z_sample + torch.randn_like(z_sample) * 0.1 * z_sample.std(dim=0)
+            #     obs_dec = self.dec(z_sample)
+            # else:
+            #     obs_dec = self.dec(z_sample)
+            obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
 

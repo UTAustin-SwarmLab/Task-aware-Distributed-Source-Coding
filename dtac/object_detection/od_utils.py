@@ -8,6 +8,7 @@ import random
 import os
 
 from dtac.object_detection.yolov8_loss import Loss
+from dtac.gym_fetch.DPCA_torch import DistriburedPCA
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -45,20 +46,35 @@ class ImagesDataset(torch.utils.data.Dataset):
                 boxwidth = float(line[3])
                 boxheight = float(line[4])
                 boxes.append([klass, centerx, centery, boxwidth, boxheight])
-                
+            
+
         boxes = torch.tensor(boxes, dtype=torch.float)
         img_path = os.path.join(self.files_dir, self.annotations.iloc[index, 0])
         image = Image.open(img_path)
         image = image.convert("RGB")
 
+        empty_box = False
+
         if self.transform is not None:
-            # image, boxes = self.transform(image, boxes)]
+            # image, boxes = self.transform(image, boxes)
             
             image = np.array(image)
-            image = self.transform(image=image)["image"]
-            image = image.float()
-            boxes = boxes
 
+            # image = self.transform(image=image)["image"]
+            # image = image.float()
+            # boxes = boxes
+            
+            if len(boxes) == 0:
+                empty_box = True
+                boxes = torch.tensor([0, 0.5, 0.5, 0.5, 0.5]) ### dummy box
+                boxes = boxes.unsqueeze(0)
+            transformed = self.transform(image=image, bboxes=boxes[:, 1:], class_labels=boxes[:, 0])
+            image, boxes, class_labels = transformed['image'], transformed['bboxes'], transformed['class_labels']  # list
+            boxes = torch.tensor(boxes, dtype=torch.float)
+            class_labels = torch.tensor(class_labels, dtype=torch.float)
+            boxes = torch.cat((class_labels.unsqueeze(1), boxes), dim=1)
+            if empty_box:
+                boxes = []
 
         # Convert To Cells
         label_matrix = torch.zeros((self.S, self.S, self.C + 5 * self.B))
@@ -394,7 +410,7 @@ def get_bboxes_v8(
     train_idx = 0
 
     for batch_idx, (x, labels) in enumerate(loader):
-        x = x.to(device)
+        x = x.to(device).type(torch.cuda.FloatTensor)
         x /= 255.0
         
         with torch.no_grad():
@@ -442,7 +458,6 @@ def get_bboxes_v8(
 
     return all_pred_boxes, all_true_boxes
 
-
 def get_bboxes(
     loader,
     model,
@@ -460,7 +475,7 @@ def get_bboxes(
     train_idx = 0
 
     for batch_idx, (x, labels) in enumerate(loader):
-        x = x.to(device)
+        x = x.to(device).type(torch.cuda.FloatTensor)
         labels = labels.to(device)
 
         with torch.no_grad():
@@ -517,7 +532,7 @@ def get_bboxes_AE(
     train_idx = 0
 
     for batch_idx, (x, labels) in enumerate(loader):
-        x = x.to(device) / 255.0
+        x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
         
         labels = labels.to(device)
 
@@ -526,8 +541,10 @@ def get_bboxes_AE(
             if joint: 
                 x = AE(x)[0]
             else:
-                x1 = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
-                x2 = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+                x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
                 x = AE(x1, x2, x)[0]
 
             if AE.training or task_model.training:
@@ -564,6 +581,110 @@ def get_bboxes_AE(
     return all_pred_boxes, all_true_boxes
 
 
+def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0):
+    if dpca is not None:
+        z1, _ = VAE.enc1(obs1)
+        z2, _ = VAE.enc2(obs2)
+        z1 = z1.detach()
+        z2 = z2.detach()
+        num_features = z1.shape[1] // 2
+        batch = z1.shape[0]
+        z1_private = z1[:, :num_features]
+        z2_private = z2[:, :num_features]
+        z1_share = z1[:, num_features:]
+        z2_share = z2[:, num_features:]
+        z = torch.cat((z1_private, z1_share, z2_private), dim=1)
+        
+        recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+        z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
+        obs_rec = VAE.dec(z_sample).clip(0, 1)
+    else:
+        obs_rec = VAE(obs1, obs2, obs)[0][:, :, :, :].clip(0, 1)
+    return obs_rec
+
+def AE_dpca(
+    loader,
+    train_loader,
+    task_model,
+    AE,
+    rep_dim, 
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+    all_pred_boxes = []
+    all_true_boxes = []
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+
+    results = []
+    dpca, singular_val_vec = DistriburedPCA(AE, rep_dim, device=device, env=train_loader)
+
+    for dpca_dim in [4]: #, 12, 24, 48, 72, 96, 144, 198]: ### total dim
+        dpca_dim = int(dpca_dim*0.75) ### 75% of the total dim = remove 1 share
+
+        ### count importance priority of dimensions
+        rep_dims = [0, 0, 0]
+        for i in range(dpca_dim):
+            seg = singular_val_vec[i][2]
+            rep_dims[seg] += 1
+
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode and decode data
+            with torch.no_grad():
+                x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+  
+                x = encode_and_decode(x1, x2, x, AE, dpca, dpca_dim=dpca_dim)
+
+                x = x.clip(0, 1) * 255.0
+                x = F.interpolate(x, size=(448, 448)) ### resize to 448x448
+                predictions = task_model(x)
+
+            batch_size = x.shape[0]
+            true_bboxes = cellboxes_to_boxes(labels)
+            bboxes = cellboxes_to_boxes(predictions)
+
+            for idx in range(batch_size):
+                nms_boxes = non_max_suppression(
+                    bboxes[idx],
+                    iou_threshold=iou_threshold,
+                    threshold=threshold,
+                    box_format=box_format,
+                )
+
+                for nms_box in nms_boxes:
+                    all_pred_boxes.append([train_idx] + nms_box)
+
+                for box in true_bboxes[idx]:
+                    # many will get converted to 0 pred
+                    if box[1] > threshold:
+                        all_true_boxes.append([train_idx] + box)
+
+                train_idx += 1
+
+        test_mean_avg_prec = mean_average_precision(all_pred_boxes, all_true_boxes, iou_threshold=0.5, box_format="midpoint")
+
+        print(f"dpca_dim: {dpca_dim}, rep_dims: {rep_dims}, test_mean_avg_prec: {test_mean_avg_prec}")
+        results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], test_mean_avg_prec])
+
+    AE.train()
+
+    return results
+
+
 def get_bboxes_localAE(
     loader,
     task_model,
@@ -586,7 +707,7 @@ def get_bboxes_localAE(
     train_idx = 0
 
     for batch_idx, (x, labels) in enumerate(loader):
-        x, labels = x.to(device), labels.to(device)
+        x, labels = x.to(device).type(torch.cuda.FloatTensor), labels.to(device)
         x = task_model.darknet(x)
         x = F.pad(x, (0, 1, 0, 1, 0, 0, 0, 0), "constant", 0)
 
@@ -630,7 +751,6 @@ def get_bboxes_localAE(
 
     AE.train()
     return all_pred_boxes, all_true_boxes
-
 
 def convert_cellboxes(predictions, S=7, C=3):
     """

@@ -175,38 +175,71 @@ def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
     else:
-        raise NotImplementedError
+        loader = env
 
-    index = np.arange(len(obs1))
-    batch = 100
-    n_batches = len(obs1) // batch
-    
-    Z = torch.zeros((len(obs1), rep_dim), device=device)
-    # invar = []
+    if env == 'gym_fetch' or env == 'PickAndPlace':
+        index = np.arange(len(obs1))
+        batch = 100
+        n_batches = len(obs1) // batch
+        
+        Z = torch.zeros((len(obs1), rep_dim), device=device)
+        # invar = []
 
-    for i in range(n_batches):
-        b_idx = index[i * batch:(i + 1) * batch]
-        o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
-        o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+        for i in range(n_batches):
+            b_idx = index[i * batch:(i + 1) * batch]
+            o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
+            o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
 
-        ### get middle representations
-        z1, _ = dvae_model.enc1(o1_batch)
-        z2, _ = dvae_model.enc2(o2_batch)
-        z1 = z1.detach()
-        z2 = z2.detach()
-        num_features = z1.shape[1] // 2
-        batch = z1.shape[0]
-        z1_private = z1[:, :num_features]
-        z2_private = z2[:, :num_features]
-        z1_share = z1[:, num_features:]
-        z2_share = z2[:, num_features:]
+            ### get middle representations
+            z1, _ = dvae_model.enc1(o1_batch)
+            z2, _ = dvae_model.enc2(o2_batch)
+            z1 = z1.detach()
+            z2 = z2.detach()
+            num_features = z1.shape[1] // 2
+            batch = z1.shape[0]
+            z1_private = z1[:, :num_features]
+            z2_private = z2[:, :num_features]
+            z1_share = z1[:, num_features:]
+            z2_share = z2[:, num_features:]
 
-        ### collect private and share representations
-        ### concatenate representations
-        z = torch.cat((z1_private, z1_share, z2_private), dim=1)
-        Z[b_idx, :] = z
+            ### collect private and share representations
+            ### concatenate representations
+            z = torch.cat((z1_private, z1_share, z2_private), dim=1)
+            Z[b_idx, :] = z
 
-    mean = Z.mean(axis=0)
+        mean = Z.mean(axis=0)
+    else:
+        data_point_num = loader.dataset.__len__()
+        flag = 0
+        Z = torch.zeros((data_point_num, rep_dim), device=device)
+
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode data
+            with torch.no_grad():
+                x1 = torch.zeros(x.shape[0], 3, 112, 112).to(device)
+                x2 = torch.zeros(x.shape[0], 3, 112, 112).to(device)
+                x1[:, :, :64, :112] = x[:, :, :64, :112]
+                x2[:, :, 64:, :112] = x[:, :, 64:, :112]
+                z1, _ = dvae_model.enc1(x1)
+                z2, _ = dvae_model.enc2(x2)
+                z1 = z1.detach()
+                z2 = z2.detach()
+                num_features = z1.shape[1] // 2
+                batch = z1.shape[0]
+                z1_private = z1[:, :num_features]
+                z2_private = z2[:, :num_features]
+                z1_share = z1[:, num_features:]
+                z2_share = z2[:, num_features:]
+
+                z = torch.cat((z1_private, z1_share, z2_private), dim=1)
+                Z[flag:flag+batch, :] = z
+            flag = flag + batch
+        
+        mean = Z.mean(axis=0)
+
 
     ### PCA for each segment
     singular_val_vec = []
