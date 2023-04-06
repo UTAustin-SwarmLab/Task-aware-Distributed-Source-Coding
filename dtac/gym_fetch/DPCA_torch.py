@@ -96,7 +96,6 @@ class DPCA_Process():
         output = self.LinearDecode(dpca_dim)
         return output
 
-
 class PCA_Process():
     def __init__(self, singular_val_vec, mean, num_features:int, device) -> None:
         '''
@@ -142,7 +141,8 @@ class PCA_Process():
         '''
         assert dpca_dim > 0 and dpca_dim <= self.d
 
-        n = self.projs[0].shape[0]
+        # n = self.projs[0].shape[0]
+        n = self.projs.shape[0]
         output = torch.zeros((n, self.d), device=self.device)
         output[:, :] = torch.matmul(self.projs, self.proj_vec.T)
 
@@ -159,7 +159,6 @@ class PCA_Process():
         output = self.LinearDecode(dpca_dim)
         return output
 
-
 def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     ### Load dataset
     dataset_dir = '/store/datasets/gym_fetch/'
@@ -174,7 +173,7 @@ def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
-    else:
+    else: ### airbus dataset
         loader = env
 
     if env == 'gym_fetch' or env == 'PickAndPlace':
@@ -253,7 +252,6 @@ def DistriburedPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/3), device)
     return dpca, singular_val_vec
 
-
 def JointPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     ### Load dataset
     dataset_dir = '/store/datasets/gym_fetch/'
@@ -268,33 +266,54 @@ def JointPCA(dvae_model, rep_dim, device, env='gym_fetch'):
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
+    else: ### airbus dataset
+        loader = env
+        
+    if env == 'gym_fetch' or env == 'PickAndPlace':
+        index = np.arange(len(obs1))
+        batch = 100
+        n_batches = len(obs1) // batch
+        
+        Z = torch.zeros((len(obs1), rep_dim), device=device)
+
+        for i in range(n_batches):
+            b_idx = index[i * batch:(i + 1) * batch]
+            o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
+            o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+
+            ### get middle representations
+            obs = torch.cat((o1_batch, o2_batch), dim=1)
+            z, _ = dvae_model.enc(obs)
+            z = z.detach()
+            num_features = z.shape[1]
+            batch = z.shape[0]
+
+            ### collect private and share representations
+            ### concatenate representations
+            Z[b_idx, :] = z
+
+        mean = Z.mean(axis=0)
     else:
-        raise NotImplementedError
+        data_point_num = loader.dataset.__len__()
+        flag = 0
+        Z = torch.zeros((data_point_num, rep_dim), device=device)
+        print(Z.shape)
 
-    index = np.arange(len(obs1))
-    batch = 100
-    n_batches = len(obs1) // batch
-    
-    Z = torch.zeros((len(obs1), rep_dim), device=device)
-    # invar = []
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
 
-    for i in range(n_batches):
-        b_idx = index[i * batch:(i + 1) * batch]
-        o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
-        o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+            ### encode data
+            with torch.no_grad():
+                z, _ = dvae_model.enc(x)
+                z = z.detach()
+                num_features = z.shape[1]
+                batch = z.shape[0]
 
-        ### get middle representations
-        obs = torch.cat((o1_batch, o2_batch), dim=1)
-        z, _ = dvae_model.enc(obs)
-        z = z.detach()
-        num_features = z.shape[1]
-        batch = z.shape[0]
-
-        ### collect private and share representations
-        ### concatenate representations
-        Z[b_idx, :] = z
-
-    mean = Z.mean(axis=0)
+                Z[flag:flag+batch, :] = z
+            flag = flag + batch
+        
+        mean = Z.mean(axis=0)
 
     ### PCA for each segment
     singular_val_vec = []

@@ -57,14 +57,14 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
         print(f"resize to {height}x{height} then 448x448")
         print("training set: ", file_parent_dir.split('/')[-2])
-        p = 0.05
-        print("p: ", p)
+        p = 0.0
+        # print("p: ", p)
         transform_img = A.Compose(transforms=[
-            # A.Resize(width=height, height=height),
-            A.RandomResizedCrop(width=height, height=height),
-            A.Blur(p=p, blur_limit=(3, 7)), 
-            A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
-            A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+            A.Resize(width=height, height=height),
+            # A.RandomResizedCrop(width=height, height=height),
+            # A.Blur(p=p, blur_limit=(3, 7)), 
+            # A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+            # A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
             ToTensorV2(p=1.0)
         ], bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels'], min_area=500, min_visibility=0.3))
 
@@ -152,16 +152,14 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
     ### load vae model
     DVAE_awa.load_state_dict(torch.load(model_path + f'/DVAE_awa-{num_epochs}.pth'))
     DVAE_awa.eval()
-    rep_dim = int(z_dim*0.75)
 
     ### test on test set
     if "Joint" in vae_model:
-        pred_boxes, target_boxes = get_bboxes_AE_dpca(
-            test_loader, task_model, DVAE_awa, True, iou_threshold=iou, threshold=conf, device=device,
-            cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
-        )
+        results = AE_dpca(test_loader, test_loader, task_model, DVAE_awa, z_dim, joint=True,
+                        iou_threshold=iou, threshold=conf, device=device, 
+                        cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
     else:
-        results = AE_dpca(test_loader, test_loader, task_model, DVAE_awa, rep_dim,  #############################################
+        results = AE_dpca(test_loader, train_loader, task_model, DVAE_awa, int(z_dim*0.75), joint=False,
                         iou_threshold=iou, threshold=conf, device=device, 
                         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
 
@@ -178,7 +176,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
 if __name__ == "__main__":
     """        
-    python dpca_od_awaAE.py --dataset airbus --device 4 -n 849 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 198 -bs 64 --seed 2 -corpen 10.0 -vae ResBasedVAE -ns False -wt 64 -ht 112
+    python dpca_od_awaAE.py --dataset airbus --device 7 -n 849 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 198 -bs 64 --seed 2 -corpen 10.0 -vae ResBasedVAE -ns False -wt 64 -ht 112
+    python dpca_od_awaAE.py --dataset airbus --device 7 -n 649 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 147 -bs 64 --seed 2 -corpen 10.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

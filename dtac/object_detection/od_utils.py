@@ -8,7 +8,7 @@ import random
 import os
 
 from dtac.object_detection.yolov8_loss import Loss
-from dtac.gym_fetch.DPCA_torch import DistriburedPCA
+from dtac.gym_fetch.DPCA_torch import DistriburedPCA, JointPCA
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -581,8 +581,8 @@ def get_bboxes_AE(
     return all_pred_boxes, all_true_boxes
 
 
-def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0):
-    if dpca is not None:
+def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=True):
+    if dpca is not None and not joint:
         z1, _ = VAE.enc1(obs1)
         z2, _ = VAE.enc2(obs2)
         z1 = z1.detach()
@@ -594,10 +594,18 @@ def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0):
         z1_share = z1[:, num_features:]
         z2_share = z2[:, num_features:]
         z = torch.cat((z1_private, z1_share, z2_private), dim=1)
-        
+
         recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
         z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
         obs_rec = VAE.dec(z_sample).clip(0, 1)
+    elif dpca is not None and joint:
+        z, _ = VAE.enc(obs)
+        z = z.detach()
+        num_features = z.shape[1] // 2
+        batch = z.shape[0]
+
+        recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+        obs_rec = VAE.dec(recon_z).clip(0, 1)
     else:
         obs_rec = VAE(obs1, obs2, obs)[0][:, :, :, :].clip(0, 1)
     return obs_rec
@@ -608,6 +616,7 @@ def AE_dpca(
     task_model,
     AE,
     rep_dim, 
+    joint:bool,
     iou_threshold,
     threshold,
     pred_format="cells",
@@ -616,19 +625,25 @@ def AE_dpca(
     cropped_image_size_w = None, 
     cropped_image_size_h = None
 ):
-    all_pred_boxes = []
-    all_true_boxes = []
 
     # make sure model is in eval before get bboxes
     task_model.eval()
     AE.eval()
     train_idx = 0
-
     results = []
-    dpca, singular_val_vec = DistriburedPCA(AE, rep_dim, device=device, env=train_loader)
 
-    for dpca_dim in [4]: #, 12, 24, 48, 72, 96, 144, 198]: ### total dim
-        dpca_dim = int(dpca_dim*0.75) ### 75% of the total dim = remove 1 share
+    if not joint:
+        dpca, singular_val_vec = DistriburedPCA(AE, rep_dim, device=device, env=train_loader)
+        iter_dims = np.arange(12, 97, 4) ### total dim
+        iter_dims = [int(i*0.75) for i in iter_dims] ### 75% of the total dim = remove 1 share
+    else:
+        dpca, singular_val_vec = JointPCA(AE, rep_dim, device=device, env=train_loader)
+        iter_dims = np.arange(9, 148, 3) ### total dim
+
+
+    for dpca_dim in iter_dims: 
+        all_pred_boxes = []
+        all_true_boxes = []
 
         ### count importance priority of dimensions
         rep_dims = [0, 0, 0]
@@ -642,12 +657,15 @@ def AE_dpca(
 
             ### encode and decode data
             with torch.no_grad():
-                x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
-                x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
-  
-                x = encode_and_decode(x1, x2, x, AE, dpca, dpca_dim=dpca_dim)
+                if joint:
+                    x = encode_and_decode(None, None, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+                elif not joint:
+                    x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                    x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                    x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                    x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+    
+                    x = encode_and_decode(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
 
                 x = x.clip(0, 1) * 255.0
                 x = F.interpolate(x, size=(448, 448)) ### resize to 448x448
@@ -678,7 +696,7 @@ def AE_dpca(
         test_mean_avg_prec = mean_average_precision(all_pred_boxes, all_true_boxes, iou_threshold=0.5, box_format="midpoint")
 
         print(f"dpca_dim: {dpca_dim}, rep_dims: {rep_dims}, test_mean_avg_prec: {test_mean_avg_prec}")
-        results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], test_mean_avg_prec])
+        results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], test_mean_avg_prec.item()])
 
     AE.train()
 
