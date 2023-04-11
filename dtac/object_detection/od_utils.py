@@ -8,7 +8,7 @@ import random
 import os
 
 from dtac.object_detection.yolov8_loss import Loss
-from dtac.gym_fetch.DPCA_torch import DistriburedPCA, JointPCA
+from dtac.gym_fetch.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -580,7 +580,6 @@ def get_bboxes_AE(
     AE.train()
     return all_pred_boxes, all_true_boxes
 
-
 def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=True):
     if dpca is not None and not joint:
         z1, _ = VAE.enc1(obs1)
@@ -598,6 +597,28 @@ def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=Tru
         recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
         z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
         obs_rec = VAE.dec(z_sample).clip(0, 1)
+    elif dpca is not None and joint:
+        z, _ = VAE.enc(obs)
+        z = z.detach()
+        num_features = z.shape[1] // 2
+        batch = z.shape[0]
+
+        recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+        obs_rec = VAE.dec(recon_z).clip(0, 1)
+    else:
+        obs_rec = VAE(obs1, obs2, obs)[0][:, :, :, :].clip(0, 1)
+    return obs_rec
+
+def encode_and_decodeEQ(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=True):
+    if dpca is not None and not joint:
+        z1, _ = VAE.enc1(obs1)
+        z2, _ = VAE.enc2(obs2)
+        z1 = z1.detach()
+        z2 = z2.detach()
+        z = torch.cat((z1, z2), dim=1)
+
+        recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+        obs_rec = VAE.dec(recon_z).clip(0, 1)
     elif dpca is not None and joint:
         z, _ = VAE.enc(obs)
         z = z.detach()
@@ -634,7 +655,7 @@ def AE_dpca(
 
     if not joint:
         dpca, singular_val_vec = DistriburedPCA(AE, rep_dim, device=device, env=train_loader)
-        iter_dims = np.arange(12, 97, 4) ### total dim
+        iter_dims = np.arange(12, 196, 4) ### total dim
         iter_dims = [int(i*0.75) for i in iter_dims] ### 75% of the total dim = remove 1 share
     else:
         dpca, singular_val_vec = JointPCA(AE, rep_dim, device=device, env=train_loader)
@@ -666,6 +687,107 @@ def AE_dpca(
                     x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
     
                     x = encode_and_decode(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+
+                x = x.clip(0, 1) * 255.0
+                x = F.interpolate(x, size=(448, 448)) ### resize to 448x448
+                predictions = task_model(x)
+
+            batch_size = x.shape[0]
+            true_bboxes = cellboxes_to_boxes(labels)
+            bboxes = cellboxes_to_boxes(predictions)
+
+            for idx in range(batch_size):
+                nms_boxes = non_max_suppression(
+                    bboxes[idx],
+                    iou_threshold=iou_threshold,
+                    threshold=threshold,
+                    box_format=box_format,
+                )
+
+                for nms_box in nms_boxes:
+                    all_pred_boxes.append([train_idx] + nms_box)
+
+                for box in true_bboxes[idx]:
+                    # many will get converted to 0 pred
+                    if box[1] > threshold:
+                        all_true_boxes.append([train_idx] + box)
+
+                train_idx += 1
+
+        test_mean_avg_prec = mean_average_precision(all_pred_boxes, all_true_boxes, iou_threshold=0.5, box_format="midpoint")
+
+        print(f"dpca_dim: {dpca_dim}, rep_dims: {rep_dims}, test_mean_avg_prec: {test_mean_avg_prec}")
+        results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], test_mean_avg_prec.item()])
+
+    AE.train()
+
+    return results
+
+
+def AE_dpcaEQ(
+    loader,
+    train_loader,
+    task_model,
+    AE,
+    rep_dim, 
+    joint:bool,
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    start = 0,
+    end = 1,
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+    results = []
+
+    if not joint:
+        dpca, singular_val_vec = DistriburedPCAEQ(AE, rep_dim, device=device, env=train_loader)
+        iter_dims = np.arange(start, end+1, 4) ### total dim
+        # iter_dims = [int(i*0.5) for i in iter_dims] ### 75% of the total dim = remove 1 share
+    else:
+        dpca, singular_val_vec = JointPCAEQ(AE, rep_dim, device=device, env=train_loader)
+        iter_dims = np.arange(start, end+1, 4) ### total dim
+
+
+    val = []
+    for val_vec in singular_val_vec:
+        val.append(val_vec[0].detach().cpu().numpy())
+    import pandas as pd
+    pd.DataFrame(val).to_csv("../csv_data/singular_val_vec399-0.001.csv")
+
+    for dpca_dim in iter_dims: 
+        all_pred_boxes = []
+        all_true_boxes = []
+
+        ### count importance priority of dimensions
+        rep_dims = [0, 0, 0]
+        for i in range(dpca_dim):
+            seg = singular_val_vec[i][2]
+            rep_dims[seg] += 1
+
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode and decode data
+            with torch.no_grad():
+                if joint:
+                    x = encode_and_decodeEQ(None, None, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+                elif not joint:
+                    x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                    x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+                    x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                    x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
+    
+                    x = encode_and_decodeEQ(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
 
                 x = x.clip(0, 1) * 255.0
                 x = F.interpolate(x, size=(448, 448)) ### resize to 448x448

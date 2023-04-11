@@ -155,7 +155,7 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
     ### test on test set
     if "Joint" in vae_model:
-        results = AE_dpca(test_loader, test_loader, task_model, DVAE_awa, z_dim, joint=True,
+        results = AE_dpca(test_loader, train_loader, task_model, DVAE_awa, z_dim, joint=True,
                         iou_threshold=iou, threshold=conf, device=device, 
                         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
     else:
