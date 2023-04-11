@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from ultralytics import YOLO
 import argparse
 
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 from dtac.object_detection.od_utils import *
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 

@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 
 seed = 0
 torch.manual_seed(seed)

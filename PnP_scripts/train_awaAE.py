@@ -8,7 +8,7 @@ import random
 import numpy as np
 import os
 
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image, random_crop_image
 

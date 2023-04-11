@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 import argparse
 from tqdm import tqdm
 
-from dtac.gym_fetch.ClassDAE import *
+from dtac.ClassDAE import *
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
 

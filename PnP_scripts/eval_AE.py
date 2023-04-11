@@ -8,9 +8,9 @@ import csv
 from dtac.gym_fetch.behavior_cloning_agent import ImageBasedRLAgent
 from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
-from dtac.gym_fetch.DPCA_torch import *
+from dtac.DPCA_torch import *
 # from dtac.gym_fetch.env_wrapper import env_wrapper
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 
 import dtac
 import gym

@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 ### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
 import argparse
 
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
 
