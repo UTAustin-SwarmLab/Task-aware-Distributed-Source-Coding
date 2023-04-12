@@ -126,41 +126,42 @@ class CNNDecoder(nn.Module):
         return output
 
 
-# class E2D1(nn.Module):
-#     def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample: bool=True, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
-#         super().__init__()
-#         self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
-#         self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
-#         self.dec = CNNDecoder( (z_dim1 + z_dim2), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
-#         self.norm_sample = norm_sample
+class E2D1(nn.Module):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample: bool=True, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
+        super().__init__()
+        self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.dec = CNNDecoder( (z_dim1 + z_dim2), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
+        self.norm_sample = norm_sample
 
-#     def forward(self, obs1, obs2):
-#         z1_mean, z1_log_std = self.enc1(obs1)
-#         z2_mean, z2_log_std = self.enc2(obs2)
+    def forward(self, obs1, obs2):
+        z1_mean, z1_log_std = self.enc1(obs1)
+        z2_mean, z2_log_std = self.enc2(obs2)
 
-#         if self.norm_sample:
-#             raise NotImplementedError
-#         else:
-#             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
-#             ### leave log_std unused. 
-#             num_features = z1_mean.shape[1] // 2 # 16
-#             batch_size = z1_mean.shape[0]
+        if self.norm_sample:
+            raise NotImplementedError
+        else:
+            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+            ### leave log_std unused. 
+            num_features = z1_mean.shape[1] // 2 # 16
+            batch_size = z1_mean.shape[0]
+            obs = torch.cat((obs1, obs2), dim=1)
 
-#             ### decode 
-#             z_sample = torch.cat((z1_mean, z2_mean), dim=1)
-#             obs_dec = self.dec(z_sample)
-#             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
-#             psnr = PSNR(obs_dec, obs)
+            ### decode 
+            z_sample = torch.cat((z1_mean, z2_mean), dim=1)
+            obs_dec = self.dec(z_sample)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
 
-#             ### Normalize
-#             z_sample = z_sample - z_sample.mean(dim=0)
+            ### Normalize
+            z_sample = z_sample - z_sample.mean(dim=0)
 
-#             ### covariance loss 
-            # z_sample = z_sample / torch.norm(z_sample, p=2)
-#             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+            ### nuclear norm 
+            z_sample = z_sample / torch.norm(z_sample, p=2)
+            nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
-#             ### weight parameters recommended by VIC paper: 25, 25, and 10
-#             return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+            ### weight parameters recommended by VIC paper: 25, 25, and 10
+            return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
 class E2D1NonSym(nn.Module):
@@ -192,7 +193,7 @@ class E2D1NonSym(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
@@ -229,7 +230,7 @@ class E1D1(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
@@ -265,7 +266,7 @@ class ResE2D1NonSym(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
             
@@ -286,6 +287,7 @@ class ResE2D1(nn.Module):
     def forward(self, obs1, obs2):
         z1_mean, z1_log_std = self.enc1(obs1)
         z2_mean, z2_log_std = self.enc2(obs2)
+        obs = torch.cat((obs1, obs2), dim=1)
 
         if self.norm_sample:
             raise NotImplementedError
@@ -304,7 +306,7 @@ class ResE2D1(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
@@ -341,7 +343,7 @@ class ResE1D1(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
@@ -378,7 +380,7 @@ class ResNetE1D1(nn.Module):
             ### Normalize
             z_sample = z_sample - z_sample.mean(dim=0)
 
-            ### covariance loss 
+            ### nuclear loss 
             z_sample = z_sample / torch.norm(z_sample, p=2)
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 

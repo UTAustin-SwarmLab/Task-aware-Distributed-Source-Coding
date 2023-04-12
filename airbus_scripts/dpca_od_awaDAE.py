@@ -7,7 +7,7 @@ import os
 import csv
 import random
 from torch.utils.data import DataLoader
-### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
+### to start tensorboard:  tensorboard --logdir=./airbus_scripts/summary --port=6006
 import argparse
 
 from dtac.ClassDAE import *
