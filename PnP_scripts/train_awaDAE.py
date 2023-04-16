@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-### to start tensorboard: tensorboard --logdir=./python_scripts/summary --port=6006
+### to start tensorboard: tensorboard --logdir=./PnP_scripts/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.utils as vutils
 import argparse
@@ -25,8 +25,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         rc = "nocrop"
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    # task_model_path = model_path + f'actor_nocrop2image/actor2image-{task_model_epoch}.pth'
-    # task_model_path = "./gym_fetch/PickAndPlaceActor/84x84_actor_2images.pt"
     task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
     model_path += f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
@@ -174,9 +172,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """        
-    python train_awaAE.py --dataset gym_fetch --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 0.0 --beta_task 10 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model SVAE --norm_sample False --rand_crop True
-    python train_awaAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --norm_sample False --rand_crop True
-    python train_awaAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 5000.0 --beta_kl 25.0 --beta_task 500 --z_dim 48 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model JointResBasedVAE --norm_sample False --rand_crop True
+    python train_awaDAE.py --dataset gym_fetch --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 0.0 --beta_task 10 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model SVAE --norm_sample False --rand_crop True
+    python train_awaDAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --norm_sample False --rand_crop True
+    python train_awaDAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 5000.0 --beta_kl 25.0 --beta_task 500 --z_dim 48 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model JointResBasedVAE --norm_sample False --rand_crop True
     """
 
     model_path = './models/'

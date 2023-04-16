@@ -9,7 +9,8 @@ import csv
 from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.DPCA_torch import *
-from dtac.ClassAE import *
+# from dtac.ClassAE import *
+from dtac.ClassDAE import *
 
 import gym
 
@@ -24,7 +25,7 @@ cropped_image_size = 112 #84 128
 original_image_size = 128 #100 128
 
 
-def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
+def encode_and_decodeEQ(obs, VAE, dpca, dpca_dim:int=0):
     obs_tensor = torch.tensor(obs).to(device).float().unsqueeze(0) / 255
     if vae_model == "SVAE":
         if dpca is not None:
@@ -39,19 +40,9 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
             z2, _ = VAE.enc2(obs2)
             z1 = z1.detach()
             z2 = z2.detach()
-            num_features = z1.shape[1] // 2
-            batch = z1.shape[0]
-            z1_private = z1[:, :num_features]
-            z2_private = z2[:, :num_features]
-            z1_share = z1[:, num_features:]
-            z2_share = z2[:, num_features:]
-            z = torch.cat((z1_private, z1_share, z2_private), dim=1)
-            
+            z = torch.cat((z1, z2), dim=1)
             recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
-
-            # z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:], recon_z[:, num_features:2*num_features]), dim=1)
-            z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
-
+            z_sample = recon_z
             obs_rec = VAE.dec(z_sample).clip(0, 1)
         else:
             obs_rec = VAE(obs1, obs2)[0][:, :, :, :].clip(0, 1)
@@ -59,7 +50,6 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
         if dpca is not None:
             z, _ = VAE.enc(obs_tensor)
             z = z.detach()
-            batch = z.shape[0]
             recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
             z_sample = recon_z
             obs_rec = VAE.dec(z_sample).clip(0, 1)
@@ -85,7 +75,8 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
         num_successes = 0
         if DPCA_tf:
             if "Joint" not in vae_model:
-                dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
+                # dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
+                dpca, singular_val_vec = DistriburedPCAEQ(VAE, rep_dim=z_dim, device=device, env=dataset)
                 ### count importance priority of dimensions
                 rep_dims = [0, 0, 0]
                 print(dpca_dim)
@@ -113,12 +104,12 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
                 ### with VAE
                 if not crop_first:
                     #### input 100x100 image
-                    obs_rec = encode_and_decode(obs, VAE, dpca, dpca_dim)
+                    obs_rec = encode_and_decodeEQ(obs, VAE, dpca, dpca_dim)
                     obs_rec = center_crop_image(obs_rec, cropped_image_size)
                 else:
                     #### input 84x84 image
                     obs = center_crop_image(obs, cropped_image_size)
-                    obs_rec = encode_and_decode(obs, VAE, dpca, dpca_dim)
+                    obs_rec = encode_and_decodeEQ(obs, VAE, dpca, dpca_dim)
                 
                 ### no VAE
                 # obs = center_crop_image(obs, cropped_image_size)

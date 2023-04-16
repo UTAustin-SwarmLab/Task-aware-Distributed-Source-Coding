@@ -6,7 +6,7 @@ import sys
 
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image             
-from dtac.gym_fetch.ClassAE import *
+from dtac.ClassAE import *
 
 def PCA(input_data, device): 
     '''
@@ -49,7 +49,7 @@ class DPCA_Process():
         dpca_dim: number of principal components
         mean: (d,)
         '''
-        assert input_data.shape[1] == self.d
+        assert input_data.shape[1] == self.d, f"input_data.shape[1] = {input_data.shape[1]}, self.d = {self.d}"
         n = input_data.shape[0]
 
         norm_input = input_data - self.mean
@@ -290,16 +290,11 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
             z2, _ = dvae_model.enc2(o2_batch)
             z1 = z1.detach()
             z2 = z2.detach()
-            num_features = z1.shape[1] // 2
             batch = z1.shape[0]
-            z1_private = z1[:, :num_features]
-            z2_private = z2[:, :num_features]
-            z1_share = z1[:, num_features:]
-            z2_share = z2[:, num_features:]
 
             ### collect private and share representations
             ### concatenate representations
-            z = torch.cat((z1_private, z1_share, z2_private), dim=1)
+            z = torch.cat((z1, z2), dim=1)
             Z[b_idx, :] = z
 
         mean = Z.mean(axis=0)
