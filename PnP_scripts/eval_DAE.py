@@ -77,20 +77,14 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
             if "Joint" not in vae_model:
                 # dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
                 dpca, singular_val_vec = DistriburedPCAEQ(VAE, rep_dim=z_dim, device=device, env=dataset)
-                ### count importance priority of dimensions
-                rep_dims = [0, 0, 0]
-                print(dpca_dim)
-                for i in range(dpca_dim):
-                    seg = singular_val_vec[i][2]
-                    rep_dims[seg] += 1
             else:
                 dpca, singular_val_vec = JointPCA(VAE, rep_dim=z_dim, device=device, env=dataset)
-                ### count importance priority of dimensions
-                print(dpca_dim)
-                rep_dims = [0, 0, 0]
-                for i in range(dpca_dim):
-                    seg = singular_val_vec[i][2]
-                    rep_dims[seg] += 1
+            ### count importance priority of dimensions
+            print(dpca_dim)
+            rep_dims = [0, 0, 0]
+            for i in range(dpca_dim):
+                seg = singular_val_vec[i][2]
+                rep_dims[seg] += 1
         else:
             dpca = None
 

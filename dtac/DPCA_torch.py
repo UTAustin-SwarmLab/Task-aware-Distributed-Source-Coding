@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import random
-import sys
+from torchvision import datasets, transforms
 
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image             
@@ -18,6 +18,24 @@ def PCA(input_data, device):
     norm_data = input_data - mean
     u, s, vh = torch.linalg.svd(norm_data, full_matrices=True)
     u, s, vh = u.to(device), s.to(device), vh.to(device)
+    singular_val_vec = []
+    v = vh.T
+    for i in range(len(s)):
+        singular_val_vec.append( (s[i], v[:, i]) )
+
+    return singular_val_vec,  mean
+
+def PCA_np(input_data, device): # use numpy to do PCA
+    '''
+    input_data: (n, d). n: number of data = batch size, d: dimension
+    return singular_val_vec: (s, v). s: singular value, v: singular vector
+    '''
+    mean = input_data.mean(axis=0)
+    assert mean.shape == (input_data.shape[1],)
+    norm_data = input_data - mean
+    norm_data = norm_data.detach().cpu().numpy()
+    u, s, vh = np.linalg.svd(norm_data, full_matrices=True)
+    u, s, vh = torch.tensor(u).to(device),  torch.tensor(s).to(device),  torch.tensor(vh).to(device)
     singular_val_vec = []
     v = vh.T
     for i in range(len(s)):
@@ -269,6 +287,24 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
+    elif env == 'cifar10':
+        batch_size = 1024
+        transform_train=transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+
+        transform_test=transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+
+        train_kwargs = {'batch_size': batch_size}
+        test_kwargs = {'batch_size': batch_size}
+        trainset = datasets.CIFAR10('./data', train=True, download=True, transform=transform_train)
+        testset = datasets.CIFAR10('./data', train=False, download=True, transform=transform_test)
+        train_loader = torch.utils.data.DataLoader(trainset,**train_kwargs)
+        test_loader = torch.utils.data.DataLoader(testset, **test_kwargs)
     else: ### airbus dataset
         loader = env
 
@@ -298,6 +334,47 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
             Z[b_idx, :] = z
 
         mean = Z.mean(axis=0)
+    elif env == 'cifar10':
+        data_point_num = trainset.__len__()
+        flag = 0
+        Z = torch.zeros((data_point_num, rep_dim), device=device)
+
+        for batch_idx, (x, labels) in enumerate(train_loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode data
+            with torch.no_grad():
+                x1 = torch.zeros(x.shape[0], x.shape[1], 32, 32).to(device)
+                x2 = torch.zeros(x.shape[0], x.shape[1], 32, 32).to(device)
+                x1[:, :, 8:, 8:] = x[:, :, 8:, 8:]
+                x1 += torch.randn(x1.shape).to(device) * 0.1
+                x2[:, :, :20, :20] = x[:, :, :20, :20] 
+                x2 += torch.randn(x2.shape).to(device) * 0.2
+                z1, _ = dvae_model.enc1(x1)
+                z2, _ = dvae_model.enc2(x2)
+                z1 = z1.detach()
+                z2 = z2.detach()
+                num_features = z1.shape[1] // 2
+                batch = z1.shape[0]
+
+                z = torch.cat((z1, z2), dim=1)
+                Z[flag:flag+batch, :] = z
+            flag = flag + batch
+        
+        mean = Z.mean(axis=0)
+        # print(Z.shape)
+        ### PCA for each segment
+        singular_val_vec = []
+        for seg in range(2): ### 2 segments: z1 z2
+            start, end = seg * int(rep_dim/2), (seg+1) * int(rep_dim/2)
+            seg_singular_val_vec, _ = PCA_np(Z[:, start:end], device)
+            for s, v in seg_singular_val_vec:
+                singular_val_vec.append( (s, v, seg) )
+        singular_val_vec.sort(key=lambda x: x[0], reverse=True)
+
+        dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/2), device)
+        return dpca, singular_val_vec
     else:
         data_point_num = loader.dataset.__len__()
         flag = 0
@@ -325,8 +402,6 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
             flag = flag + batch
         
         mean = Z.mean(axis=0)
-
-
     ### PCA for each segment
     singular_val_vec = []
     for seg in range(2): ### 2 segments: z1 z2
