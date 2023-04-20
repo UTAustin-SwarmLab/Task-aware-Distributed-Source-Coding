@@ -10,7 +10,7 @@ from dtac.DPCA_torch import *
 from dtac.ClassDAE import *
 
 
-def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
+def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=1024, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
                  device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, start=0, end=97):
     ### set paths
     if norm_sample:
@@ -50,24 +50,25 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
         testset = datasets.CIFAR10('./data', train=False, download=True, transform=transform_test)
         train_loader = torch.utils.data.DataLoader(trainset,**train_kwargs)
         test_loader = torch.utils.data.DataLoader(testset, **test_kwargs)
+        image_size = 32
     else:
         raise NotImplementedError
 
     ### distributed models
     if vae_model == "CNNBasedVAE":
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1NonSym((3, 32, 32), (3, 32, 32), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
-        print("CNNBasedVAE Input shape", (3, 32, 32))
+        DVAE_awa = E2D1NonSym((3, image_size, image_size), (3, image_size, image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        print("CNNBasedVAE Input shape", (3, image_size, image_size))
     elif vae_model == "ResBasedVAE":
-        DVAE_awa = ResE2D1NonSym((3, 32, 32), (3, 32, 32), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, 3-seed).to(device)
-        print("ResBasedVAE Input shape", (3, 32, 32), (3, 32, 32))
+        DVAE_awa = ResE2D1NonSym((3, image_size, image_size), (3, image_size, image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, 3-seed).to(device)
+        print("ResBasedVAE Input shape", (3, image_size, image_size), (3, image_size, image_size))
     ### Joint models
     elif vae_model == "JointCNNBasedVAE":
-        DVAE_awa = E1D1((3, 32, 32), z_dim, norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
-        print("JointCNNBasedVAE Input shape", (3, 32, 32))
+        DVAE_awa = E1D1((3, image_size, image_size), z_dim, norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        print("JointCNNBasedVAE Input shape", (3, image_size, image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((3, 32, 32), z_dim, norm_sample, 4-seed, 3-seed).to(device)
-        print("JointResBasedVAE Input shape", (3, 32, 32))
+        DVAE_awa = ResE1D1((3, image_size, image_size), z_dim, norm_sample, 4-seed, 3-seed).to(device)
+        print("JointResBasedVAE Input shape", (3, image_size, image_size))
     else:
         DVAE_awa = ResNetE1D1().to(device)
 
@@ -96,8 +97,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
                 obs, out = obs.to(device), out.to(device)
                
                 if "Joint" not in vae_model and "BasedVAE" in vae_model:
-                    o1_batch = torch.zeros(obs.shape[0], obs.shape[1], 32, 32).to(device)
-                    o2_batch = torch.zeros(obs.shape[0], obs.shape[1], 32, 32).to(device)
+                    o1_batch = torch.zeros(obs.shape[0], obs.shape[1], image_size, image_size).to(device)
+                    o2_batch = torch.zeros(obs.shape[0], obs.shape[1], image_size, image_size).to(device)
                     o1_batch[:, :, 8:, 8:] = obs[:, :, 8:, 8:]
                     o1_batch += torch.randn(o1_batch.shape).to(device) * 0.1
                     o2_batch[:, :, :20, :20] = obs[:, :, :20, :20] 

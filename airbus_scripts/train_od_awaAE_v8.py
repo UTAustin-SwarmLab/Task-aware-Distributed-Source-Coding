@@ -10,7 +10,7 @@ import random
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dtac.object_detection.yolov8_loss import Loss
-### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
+### to start tensorboard:  tensorboard --logdir=./airbus_scripts/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 from ultralytics import YOLO
 import argparse

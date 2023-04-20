@@ -9,7 +9,7 @@ import torchvision.utils as vutils
 import random
 import torch.optim as optim
 from torch.utils.data import DataLoader
-### to start tensorboard:  tensorboard --logdir=./airbus_detection/summary --port=6006
+### to start tensorboard:  tensorboard --logdir=./airbus_scripts/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from tqdm import tqdm
@@ -29,8 +29,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
+    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
 
     model_path = f'./models/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))

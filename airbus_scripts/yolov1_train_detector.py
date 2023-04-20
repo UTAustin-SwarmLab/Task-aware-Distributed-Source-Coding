@@ -116,7 +116,7 @@ print(f"resize to {resize_shape}x{resize_shape} and 448x448")
 
 def main():
     model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
-    # model.load_state_dict(torch.load("/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth")["state_dict"])
+    # model.load_state_dict(torch.load("/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth")["state_dict"])
 
     optimizer = optim.Adam(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
@@ -335,7 +335,7 @@ def predictionsV8():
 def predictions_AE():
     ### load task
     # TASK_MODEL_FILE = MODEL_PATH + f"yolov1_512x512_ep80_map0.98_0.99.pth"
-    TASK_MODEL_FILE = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
+    TASK_MODEL_FILE = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_512x512/yolov1_upsample224_512x512_ep149_map0.98_0.74.pth"
 
     task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(DEVICE)
     optimizer = optim.Adam(

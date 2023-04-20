@@ -8,7 +8,7 @@ import random
 import os
 
 from dtac.object_detection.yolov8_loss import Loss
-from dtac.gym_fetch.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ
+from dtac.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -1005,10 +1005,10 @@ if __name__ == '__main__':
     )
 
     AE = E1D1((3, size, size), 96, False, 4-2, int(128/(2+1)), 2, 128).to(device)
-    AE.load_state_dict(torch.load("../../airbus_detection/models/airbus_96_taskaware_AE_JointCNNBasedVAE64x112_kl0.0_rec1000.0_task0.1_bs64_cov0.0_lr0.0001_seed2/DVAE_awa-2399.pth"))
+    AE.load_state_dict(torch.load("../../airbus_scripts/models/airbus_96_taskaware_AE_JointCNNBasedVAE64x112_kl0.0_rec1000.0_task0.1_bs64_cov0.0_lr0.0001_seed2/DVAE_awa-2399.pth"))
     
     # task_model_path = "./runs/train/weights/best.pt"
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_512x512/yolov1_512x512_ep80_map0.98_0.99.pth"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_512x512/yolov1_512x512_ep80_map0.98_0.99.pth"
     task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
     checkpoint = torch.load(task_model_path)
     task_model.load_state_dict(checkpoint["state_dict"])

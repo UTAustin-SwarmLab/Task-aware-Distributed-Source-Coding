@@ -23,8 +23,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
     else:
         model_type = "AE"
 
-    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_detection/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
+    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
+    task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
     model_path = f'./models/{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
 
     ### Set the random seed
@@ -176,8 +176,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
 if __name__ == "__main__":
     """        
-    python dpca_od_awaAE_2.py --dataset airbus --device 7 -n 449 -l 1e-4 -r 0.0 -k 0.001 -t 0.1 -z 96 -bs 64 --seed 2 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -st 4 -end 12
-    python dpca_od_awaAE_2.py --dataset airbus --device 7 -n 649 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 147 -bs 64 --seed 2 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112  -st 4 -end 12
+    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 449 -l 1e-4 -r 0.0 -k 0.001 -t 0.1 -z 96 -bs 64 --seed 2 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -st 4 -end 12
+    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 649 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 147 -bs 64 --seed 2 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112  -st 4 -end 12
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
