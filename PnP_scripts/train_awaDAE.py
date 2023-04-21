@@ -12,8 +12,8 @@ from dtac.ClassDAE import *
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image, random_crop_image
 
-def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                  device=0, save_interval=5, lr=2e-4, seed=0, model_path=None, dataset_dir=None, vae_model="CNNBasedVAE", task_model_epoch=99, norm_sample=True, rand_crop=False):
+def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, device=0, save_interval=5,
+                  lr=2e-4, seed=0, model_path=None, dataset_dir=None, vae_model="CNNBasedVAE", norm_sample=True, rand_crop=False, randpca=False):
     ### set paths
     if norm_sample:
         model_type = "DVAE"
@@ -23,11 +23,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         rc = "randcrop"
     else:
         rc = "nocrop"
-    LOG_DIR = f'./summary/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    fig_dir = f'./figures/{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
-    model_path += f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    if not randpca:
+        rc = "NoPCA_" + rc
+    LOG_DIR = f'./summary/{dataset}_{z_dim}_randPCA_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    fig_dir = f'./figures/{dataset}_{z_dim}_randPCA_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    model_path += f'{dataset}_{z_dim}_randPC_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
+    task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
 
     ### Set the random seed
     if seed != -1:
@@ -73,16 +75,20 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     if vae_model == "CNNBasedVAE":
         # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        nn_complexity = 0
+        DVAE_awa = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "ResBasedVAE":
-        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, 3-seed).to(device)
+        nn_complexity = 2
+        DVAE_awa = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "JointCNNBasedVAE":
-        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        nn_complexity = 0
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-seed, 3-seed).to(device)
+        nn_complexity = 2
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
@@ -91,6 +97,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     index = np.arange(len(obs1))
     n_batches = len(obs1) // batch_size
+    print("Random PCA: ", randpca)
 
     cur_iter = 0
     for ep in range(num_epochs):
@@ -116,8 +123,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
                 elif "Joint" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
-                elif vae_model == "SVAE":
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
 
                 task_output = task_model(obs_pred.clip(0, 1))[0]
                 obs = torch.cat((o1_batch, o2_batch), dim=1)
@@ -126,10 +131,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
             elif dataset == "gym_fetch": # gym_fetch
                 if "Joint" not in vae_model and "BasedVAE" in vae_model:
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
+                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
                 elif "Joint" in vae_model:
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
-                elif vae_model == "SVAE":
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
 
                 task_output = task_model(obs_pred.clip(0, 1))[0]
@@ -199,6 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("-task_e", "--task_model_epoch", type=int, help="task model eposh", default=99)
     parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="True")
     parser.add_argument("-crop", "--rand_crop", type=bool, help="randomly crop images", default=False)
+    parser.add_argument("-p", "--randpca", type=bool, help="perform random pca when training", default=False)
     args = parser.parse_args()
 
     if args.norm_sample == 'True' or args.norm_sample == 'true':
@@ -208,5 +212,5 @@ if __name__ == "__main__":
 
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, weight_cross_penalty=args.cross_penalty, 
                   beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=50, lr=args.lr, seed=args.seed,
-                  model_path=model_path, dataset_dir=dataset_dir, vae_model=args.vae_model, task_model_epoch=args.task_model_epoch, norm_sample=args.norm_sample,
-                  rand_crop=args.rand_crop)
+                  model_path=model_path, dataset_dir=dataset_dir, vae_model=args.vae_model, norm_sample=args.norm_sample,rand_crop=args.rand_crop, randpca=args.randpca)
+    

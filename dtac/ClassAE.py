@@ -7,8 +7,6 @@ from collections import OrderedDict
 
 from dtac.encoder import ResEncoder
 from dtac.decoder import ResDecoder
-import dtac.ResNetEnc as ResNetenc
-import dtac.ResNetDec as ResNetdec
 
 def PSNR(img1, img2, PIXEL_MAX = 255.0):
     mse = torch.mean((img1 - img2) ** 2)
@@ -440,52 +438,6 @@ class ResE1D1(nn.Module):
             ### variance loss
             z1_private_norm = z1_private - z1_private.mean(dim=0)
             z1_share_norm = z1_share - z1_share.mean(dim=0)
-
-            std_z1_private = torch.sqrt(z1_private_norm.var(dim=0) + 0.0001)
-            std_z1_share = torch.sqrt(z1_share_norm.var(dim=0) + 0.0001)
-            std_loss = torch.mean(F.relu(1 - std_z1_private)) / 2 + torch.mean(F.relu(1 - std_z1_share)) / 2
-
-            ### covariance loss 
-            z1_private_share = torch.cat((z1_private_norm, z1_share_norm), dim=1)
-            covz1 = (z1_private_share.T @ z1_private_share) / (batch_size - 1)
-            cov_loss = off_diagonal(covz1).pow_(2).sum().div(num_features) / 3
-
-            ### weight parameters recommended by VIC paper: 25, 25, and 10
-            return obs_dec, torch.mean(mse), std_loss, invar_loss, cov_loss, psnr
-
-
-class ResNetE1D1(nn.Module):
-    def __init__(self, norm_sample: bool=False): # noise=0.01):
-        super().__init__()
-        self.enc = ResNetenc.ResNet(ResNetenc.Bottleneck, [3, 4, 6, 3], return_indices=True)
-        self.dec = ResNetdec.ResNet(ResNetdec.Bottleneck, [3, 4, 6, 3])
-        self.norm_sample = norm_sample
-
-    def forward(self, obs):
-        z1_mean, indices = self.enc(obs) ### 2048
-
-        if self.norm_sample:
-            raise NotImplementedError
-        else:
-            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
-            ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2
-            batch_size = z1_mean.shape[0]
-            z1_private = z1_mean[:, :num_features]
-            z1_share = z1_mean[:, num_features:]
-
-            ### similarity (invariance) loss of shared representations
-            invar_loss =  F.mse_loss(z1_share, z1_share) # this is always 0
-
-            ### decode 
-            z_sample = torch.cat((z1_private, z1_share), dim=1)
-            obs_dec = self.dec(z_sample, indices)
-            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
-            psnr = PSNR(obs_dec, obs)
-
-            ### variance loss
-            z1_private_norm = (z1_private - z1_private.mean(dim=0)).reshape(batch_size, num_features)
-            z1_share_norm = (z1_share - z1_share.mean(dim=0)).reshape(batch_size, num_features)
 
             std_z1_private = torch.sqrt(z1_private_norm.var(dim=0) + 0.0001)
             std_z1_share = torch.sqrt(z1_share_norm.var(dim=0) + 0.0001)

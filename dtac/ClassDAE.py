@@ -7,8 +7,6 @@ from collections import OrderedDict
 
 from dtac.encoder import ResEncoder
 from dtac.decoder import ResDecoder
-import dtac.ResNetEnc as ResNetenc
-import dtac.ResNetDec as ResNetdec
 
 def PSNR(img1, img2, PIXEL_MAX = 255.0):
     mse = torch.mean((img1 - img2) ** 2)
@@ -23,6 +21,14 @@ def off_diagonal(x):
     n, m = x.shape
     assert n == m
     return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
+
+
+def data_pca(z):
+    #PCA using SVD
+	data_mean = torch.mean(z, axis=0)
+	z_norm = z - data_mean
+	u, s, v = torch.svd(z_norm)
+	return s, v, data_mean
 
 
 class CNNEncoder(nn.Module):
@@ -41,7 +47,7 @@ class CNNEncoder(nn.Module):
             [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
         )
         for i in range(num_layers - 1):
-            self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+            self.conv_layers.append(nn.Conv2d(num_filters, num_filters, 3, stride=2)) # 1
 
         x = torch.rand([1] + list(obs_shape))
         conv_flattened_size = np.prod(self.forward_conv(x).shape[-3:])
@@ -134,21 +140,49 @@ class E2D1(nn.Module):
         self.dec = CNNDecoder( (z_dim1 + z_dim2), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
         self.norm_sample = norm_sample
 
-    def forward(self, obs1, obs2):
-        z1_mean, z1_log_std = self.enc1(obs1)
-        z2_mean, z2_log_std = self.enc2(obs2)
+    def forward(self, obs1, obs2, random_bottle_neck=False):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
 
         if self.norm_sample:
             raise NotImplementedError
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2 # 16
-            batch_size = z1_mean.shape[0]
+            num_features = z1.shape[1] + z2.shape[1]
+            batch_size = z1.shape[0]
             obs = torch.cat((obs1, obs2), dim=1)
 
             ### decode 
-            z_sample = torch.cat((z1_mean, z2_mean), dim=1)
+            z_sample = torch.cat((z1, z2), dim=1)
+
+            if random_bottle_neck:
+                # reduce the dimensionality of the data using dpca
+                # use PCA to reduce dimension
+                dim_p = torch.randint(1, num_features, (1,)).item()
+
+                s_1, v_1, mu_1 = data_pca(z1)
+                s_2, v_2, mu_2 = data_pca(z2)
+
+                # pick the indices of the top 1/2 singular values for s_1 and s_2 combined
+                s_1_2 = torch.cat((s_1,s_2), 0)
+                ind = torch.argsort(s_1_2,descending=True)
+                ind = ind[:dim_p]
+                ind_1 = ind[ind < s_1.shape[0]]
+                ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+
+                # project z1 and z2 into corresponding subspace
+                z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+                z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+
+                # concatenate to form full z
+                # z_o = torch.cat((z1_p,z2_p), 1)
+
+                # project back the latent to full dim
+                z1_b =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+                z2_b =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+                z_sample = torch.cat((z1_b,z2_b),1)
+
             obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
@@ -172,20 +206,47 @@ class E2D1NonSym(nn.Module):
         self.dec = CNNDecoder( (z_dim1 + z_dim2), (obs_shape1[0], obs_shape1[2], obs_shape1[2])) ### airbus
         self.norm_sample = norm_sample
 
-    def forward(self, obs1, obs2, obs):
-        z1_mean, z1_log_std = self.enc1(obs1)
-        z2_mean, z2_log_std = self.enc2(obs2)
+    def forward(self, obs1, obs2, obs, random_bottle_neck=False):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
 
         if self.norm_sample:
             raise NotImplementedError
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2 # 16
-            batch_size = z1_mean.shape[0]
+            num_features = z1.shape[1] + z2.shape[1]
+            batch_size = z1.shape[0]
 
             ### decode 
-            z_sample = torch.cat((z1_mean, z2_mean), dim=1)
+            z_sample = torch.cat((z1, z2), dim=1)
+            if random_bottle_neck:
+                # reduce the dimensionality of the data using dpca
+                # use PCA to reduce dimension
+                dim_p = torch.randint(1, num_features, (1,)).item()
+
+                s_1, v_1, mu_1 = data_pca(z1)
+                s_2, v_2, mu_2 = data_pca(z2)
+
+                # pick the indices of the top 1/2 singular values for s_1 and s_2 combined
+                s_1_2 = torch.cat((s_1,s_2), 0)
+                ind = torch.argsort(s_1_2,descending=True)
+                ind = ind[:dim_p]
+                ind_1 = ind[ind < s_1.shape[0]]
+                ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+
+                # project z1 and z2 into corresponding subspace
+                z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+                z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+
+                # concatenate to form full z
+                # z_o = torch.cat((z1_p,z2_p), 1)
+
+                # project back the latent to full dim
+                z1_b =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+                z2_b =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+                z_sample = torch.cat((z1_b,z2_b),1)
+
             obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
@@ -209,17 +270,17 @@ class E1D1(nn.Module):
         self.norm_sample = norm_sample
 
     def forward(self, obs):
-        z1_mean, z1_log_std = self.enc(obs)
+        z1, _ = self.enc(obs)
 
         if self.norm_sample:
             raise NotImplementedError
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2
-            batch_size = z1_mean.shape[0]
-            z1_private = z1_mean[:, :num_features]
-            z1_share = z1_mean[:, num_features:]
+            num_features = z1.shape[1] // 2
+            batch_size = z1.shape[0]
+            z1_private = z1[:, :num_features]
+            z1_share = z1[:, num_features:]
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
@@ -246,19 +307,47 @@ class ResE2D1NonSym(nn.Module):
         self.dec = ResDecoder((size2[0], size2[-1], size2[-1]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.norm_sample = norm_sample
 
-    def forward(self, obs1, obs2, obs):
-        z1_mean, z1_log_std = self.enc1(obs1)
-        z2_mean, z2_log_std = self.enc2(obs2)
+    def forward(self, obs1, obs2, obs, random_bottle_neck=False):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
 
         if self.norm_sample:
             raise NotImplementedError
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            batch_size = z1_mean.shape[0]
+            num_features = z1.shape[1] + z2.shape[1]
+            batch_size = z1.shape[0]
 
             ### decode 
-            z_sample = torch.cat((z1_mean, z2_mean), dim=1)
+            z_sample = torch.cat((z1, z2), dim=1)
+            if random_bottle_neck:
+                # reduce the dimensionality of the data using dpca
+                # use PCA to reduce dimension
+                dim_p = torch.randint(1, num_features, (1,)).item()
+
+                s_1, v_1, mu_1 = data_pca(z1)
+                s_2, v_2, mu_2 = data_pca(z2)
+
+                # pick the indices of the top 1/2 singular values for s_1 and s_2 combined
+                s_1_2 = torch.cat((s_1,s_2), 0)
+                ind = torch.argsort(s_1_2,descending=True)
+                ind = ind[:dim_p]
+                ind_1 = ind[ind < s_1.shape[0]]
+                ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+
+                # project z1 and z2 into corresponding subspace
+                z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+                z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+
+                # concatenate to form full z
+                # z_o = torch.cat((z1_p,z2_p), 1)
+
+                # project back the latent to full dim
+                z1_b =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+                z2_b =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+                z_sample = torch.cat((z1_b,z2_b),1)
+
             obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
@@ -284,9 +373,9 @@ class ResE2D1(nn.Module):
                                 n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.norm_sample = norm_sample
 
-    def forward(self, obs1, obs2):
-        z1_mean, z1_log_std = self.enc1(obs1)
-        z2_mean, z2_log_std = self.enc2(obs2)
+    def forward(self, obs1, obs2, random_bottle_neck=False):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
         obs = torch.cat((obs1, obs2), dim=1)
 
         if self.norm_sample:
@@ -294,11 +383,38 @@ class ResE2D1(nn.Module):
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2 # 16
-            batch_size = z1_mean.shape[0]
+            num_features = z1.shape[1] + z2.shape[1]
+            batch_size = z1.shape[0]
 
             ### decode 
-            z_sample = torch.cat((z1_mean, z2_mean), dim=1)
+            z_sample = torch.cat((z1, z2), dim=1)
+            if random_bottle_neck:
+                # reduce the dimensionality of the data using dpca
+                # use PCA to reduce dimension
+                dim_p = torch.randint(1, num_features, (1,)).item()
+
+                s_1, v_1, mu_1 = data_pca(z1)
+                s_2, v_2, mu_2 = data_pca(z2)
+
+                # pick the indices of the top 1/2 singular values for s_1 and s_2 combined
+                s_1_2 = torch.cat((s_1,s_2), 0)
+                ind = torch.argsort(s_1_2,descending=True)
+                ind = ind[:dim_p]
+                ind_1 = ind[ind < s_1.shape[0]]
+                ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+
+                # project z1 and z2 into corresponding subspace
+                z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+                z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+
+                # concatenate to form full z
+                # z_o = torch.cat((z1_p,z2_p), 1)
+
+                # project back the latent to full dim
+                z1_b =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+                z2_b =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+                z_sample = torch.cat((z1_b,z2_b),1)
+
             obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
             psnr = PSNR(obs_dec, obs)
@@ -322,17 +438,17 @@ class ResE1D1(nn.Module):
         self.norm_sample = norm_sample
 
     def forward(self, obs):
-        z1_mean, z1_log_std = self.enc(obs)
+        z1, _ = self.enc(obs)
 
         if self.norm_sample:
             raise NotImplementedError
         else:
             ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
             ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2
-            batch_size = z1_mean.shape[0]
-            z1_private = z1_mean[:, :num_features]
-            z1_share = z1_mean[:, num_features:]
+            num_features = z1.shape[1] // 2
+            batch_size = z1.shape[0]
+            z1_private = z1[:, :num_features]
+            z1_share = z1[:, num_features:]
 
             ### decode 
             z_sample = torch.cat((z1_private, z1_share), dim=1)
@@ -350,42 +466,6 @@ class ResE1D1(nn.Module):
             ### weight parameters recommended by VIC paper: 25, 25, and 10
             return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
-
-class ResNetE1D1(nn.Module):
-    def __init__(self, norm_sample: bool=False): # noise=0.01):
-        super().__init__()
-        self.enc = ResNetenc.ResNet(ResNetenc.Bottleneck, [3, 4, 6, 3], return_indices=True)
-        self.dec = ResNetdec.ResNet(ResNetdec.Bottleneck, [3, 4, 6, 3])
-        self.norm_sample = norm_sample
-
-    def forward(self, obs):
-        z1_mean, indices = self.enc(obs) ### 2048
-
-        if self.norm_sample:
-            raise NotImplementedError
-        else:
-            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
-            ### leave log_std unused. 
-            num_features = z1_mean.shape[1] // 2
-            batch_size = z1_mean.shape[0]
-            z1_private = z1_mean[:, :num_features]
-            z1_share = z1_mean[:, num_features:]
-
-            ### decode 
-            z_sample = torch.cat((z1_private, z1_share), dim=1)
-            obs_dec = self.dec(z_sample)
-            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
-            psnr = PSNR(obs_dec, obs)
-
-            ### Normalize
-            z_sample = z_sample - z_sample.mean(dim=0)
-
-            ### nuclear loss 
-            z_sample = z_sample / torch.norm(z_sample, p=2)
-            nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
-
-            ### weight parameters recommended by VIC paper: 25, 25, and 10
-            return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 if __name__ == '__main__':
     # e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
