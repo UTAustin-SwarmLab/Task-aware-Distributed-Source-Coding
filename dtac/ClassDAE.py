@@ -159,7 +159,7 @@ class E2D1(nn.Module):
             if random_bottle_neck:
                 # reduce the dimensionality of the data using dpca
                 # use PCA to reduce dimension
-                dim_p = torch.randint(1, num_features, (1,)).item()
+                dim_p = torch.randint(8, int(num_features/2), (1,)).item()
 
                 s_1, v_1, mu_1 = data_pca(z1)
                 s_2, v_2, mu_2 = data_pca(z2)
@@ -223,7 +223,7 @@ class E2D1NonSym(nn.Module):
             if random_bottle_neck:
                 # reduce the dimensionality of the data using dpca
                 # use PCA to reduce dimension
-                dim_p = torch.randint(1, num_features, (1,)).item()
+                dim_p = torch.randint(8, int(num_features/2), (1,)).item()
 
                 s_1, v_1, mu_1 = data_pca(z1)
                 s_2, v_2, mu_2 = data_pca(z2)
@@ -324,7 +324,7 @@ class ResE2D1NonSym(nn.Module):
             if random_bottle_neck:
                 # reduce the dimensionality of the data using dpca
                 # use PCA to reduce dimension
-                dim_p = torch.randint(1, num_features, (1,)).item()
+                dim_p = torch.randint(8, int(num_features/2), (1,)).item()
 
                 s_1, v_1, mu_1 = data_pca(z1)
                 s_2, v_2, mu_2 = data_pca(z2)
@@ -391,7 +391,7 @@ class ResE2D1(nn.Module):
             if random_bottle_neck:
                 # reduce the dimensionality of the data using dpca
                 # use PCA to reduce dimension
-                dim_p = torch.randint(1, num_features, (1,)).item()
+                dim_p = torch.randint(8, int(num_features/2), (1,)).item()
 
                 s_1, v_1, mu_1 = data_pca(z1)
                 s_2, v_2, mu_2 = data_pca(z2)
