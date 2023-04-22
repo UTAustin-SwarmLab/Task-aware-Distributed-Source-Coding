@@ -467,6 +467,67 @@ class ResE1D1(nn.Module):
             return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
+class ConcatenateJAE(nn.Module):
+    def __init__(self, JAE, z_dim: int, orig_dim: int):
+        super().__init__()
+        self.JAE = JAE
+        self.JAE.eval()
+        for param in self.JAE.parameters():
+            param.requires_grad = False
+        self.z_dim = z_dim
+        self.orig_dim = orig_dim
+        self.ffenc = nn.Sequential(OrderedDict([
+          ('ffenc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+          ('ffenc1relu1', nn.ReLU()),
+          ('ffenc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+          ('ffenc1relu2', nn.ReLU()),
+        ('ffenc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+        ]))
+
+        self.ffdec = nn.Sequential(OrderedDict([
+            ('ffdec1', nn.Linear(z_dim, int((orig_dim+z_dim)*1/3)) ),
+            ('ffdec1relu1', nn.ReLU()),
+            ('ffdec2', nn.Linear(int((orig_dim+z_dim)*1/3), int((orig_dim+z_dim)*2/3))),
+            ('ffdec1relu2', nn.ReLU()),
+            ('ffdec3', nn.Linear(int((orig_dim+z_dim)*2/3), orig_dim)),
+            ]))
+    
+    def forward(self, obs):
+        # self.JAE.eval()
+        # for param in self.JAE.parameters():
+        #     param.requires_grad = False
+        
+        z, _ = self.enc(obs)
+        ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+        ### leave log_std unused. 
+        num_features = z.shape[1]
+        batch_size = z.shape[0]
+
+        ### decode 
+        obs_dec = self.dec(z)
+        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        psnr = PSNR(obs_dec, obs)
+
+        ### Normalize
+        z_sample = z_sample - z_sample.mean(dim=0)
+
+        ### nuclear loss 
+        z_sample = z_sample / torch.norm(z_sample, p=2)
+        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+        ### weight parameters recommended by VIC paper: 25, 25, and 10
+        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+    
+    def enc(self, obs):
+        z = self.JAE.enc(obs)
+        z = self.ffenc(z)
+        return z
+
+    def dec(self, z):
+        z = self.ffdec(z)
+        z = self.JAE.dec(z)
+        return z
+
 if __name__ == '__main__':
     # e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
     # rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()

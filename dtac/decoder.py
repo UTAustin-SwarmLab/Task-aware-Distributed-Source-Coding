@@ -7,8 +7,10 @@ from collections import OrderedDict
 
 
 class ResDecoder(nn.Module):
-    def __init__(self, output_shape, feature_dim, n_upsamples=4, n_res_blocks=3, final_upsample_filters=16,
-                 num_filters=(32, 64), n_hidden_layers=2, hidden_size=128): # , 128, 256
+    def __init__(self, output_shape, feature_dim, n_upsamples=4, n_res_blocks=3,
+                # final_upsample_filters=8,
+                #  num_filters=(32, 64), n_hidden_layers=2, hidden_size=128): # , 128, 256
+                 num_filters=(8, 16, 32, 64), n_hidden_layers=2, hidden_size=128):
         super().__init__()
 
         assert len(output_shape) == 3
@@ -22,14 +24,15 @@ class ResDecoder(nn.Module):
                                  output_shape[2] // 2 ** n_upsamples)
 
         self.conv_layers = nn.ModuleList(
-            [nn.Conv2d(num_filters[0], final_upsample_filters, 3, stride=1, padding=1)]
+            # [nn.Conv2d(num_filters[0], final_upsample_filters, 3, stride=1, padding=1)]
+            [nn.Conv2d(num_filters[0], self.output_shape[0], 3, stride=1, padding=1)]
         )
         for i in range(self.n_upsamples - 1):
             self.conv_layers.append(nn.Conv2d(num_filters[i + 1], num_filters[i], 3, stride=1, padding=1))
         
         conv_shapes = self.compute_conv_shapes()
 
-        self.final_conv = nn.Conv2d(final_upsample_filters, self.output_shape[0], 3, stride=1, padding=1)
+        # self.final_conv = nn.Conv2d(final_upsample_filters, self.output_shape[0], 3, stride=1, padding=1)
 
         self.res_blocks = nn.ModuleList()
         for i in range(self.n_upsamples):
@@ -71,8 +74,10 @@ class ResDecoder(nn.Module):
             conv = nn.functional.interpolate(conv, scale_factor=2)
             conv = self.conv_layers[i](conv)
             conv = self.ln_layers[i](conv)
-            conv = torch.relu(conv)
-        conv = self.final_conv(conv)
+            if i > 0:
+                conv = torch.relu(conv)
+            # conv = torch.relu(conv)
+        # conv = self.final_conv(conv)
         return conv
 
     def forward(self, feature):

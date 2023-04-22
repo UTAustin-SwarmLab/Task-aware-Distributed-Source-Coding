@@ -217,19 +217,23 @@ if __name__ == '__main__':
     if "Joint" in vae_model:
         rc = "NoPCA_" + rc
     # vae_name = f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
-    vae_name = f'{dataset}_{z_dim}_randPC_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
+    vae_name = f'{dataset}_{z_dim}_randPCA_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
     print("VAE is", vae_name)
 
     ### Load policy network here
     if vae_model == 'CNNBasedVAE':
-        dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-VAE_seed, int(128/(VAE_seed+1)), 2, 128).to(device)
+        nn_complexity = 0
+        dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'ResBasedVAE':
-        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-VAE_seed, 3-VAE_seed).to(device)
+        nn_complexity = 2
+        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
     elif vae_model == 'JointCNNBasedVAE':
+        nn_complexity = 0
         # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
-        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-VAE_seed, int(128/(VAE_seed+1)), 2, 128).to(device)
+        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'JointResBasedVAE':
-        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-VAE_seed, 3-VAE_seed).to(device)
+        nn_complexity = 2
+        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
     dvae_model.eval()

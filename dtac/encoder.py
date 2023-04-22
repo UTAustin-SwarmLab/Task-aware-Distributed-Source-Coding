@@ -8,7 +8,8 @@ from collections import OrderedDict
 
 class ResEncoder(nn.Module):
     def __init__(self, input_shape, feature_dim, n_downsamples=4, n_res_blocks=3,
-                 num_filters=(32, 64), n_hidden_layers=2, hidden_size=128): # , 128, 256
+                #  num_filters=(32, 64), n_hidden_layers=2, hidden_size=128): # , 128, 256
+                 num_filters=(8, 16, 32, 64), n_hidden_layers=2, hidden_size=128):
         super().__init__()
 
         assert len(input_shape) == 3
