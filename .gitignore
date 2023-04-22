@@ -136,7 +136,9 @@ dmypy.json
 *.jpg
 *.pth
 */summary/*
-*.csv
+/csv_data/*.csv
+/airbus_dataset/*.csv
+results.csv
 *.txt
 *.jpg
 *.cache
