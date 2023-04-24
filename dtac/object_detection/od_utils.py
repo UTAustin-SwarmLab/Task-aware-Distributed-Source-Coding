@@ -538,22 +538,30 @@ def get_bboxes_AE(
 
         ### encode and decode data
         with torch.no_grad():
+            x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+            x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
+            x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+            x2[:, :, cropped_image_size_w-20:, :cropped_image_size_h] = x[:, :, cropped_image_size_w-20:, :cropped_image_size_h]
+
             if joint: 
-                x = AE(x)[0]
+                x6chan = torch.cat((x1, x2), dim=1)
+                x_ = AE(x6chan)[0]
             else:
-                x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
-                x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
-                x = AE(x1, x2, x)[0]
+                x_ = AE(x1, x2)[0]
+
+            x_pred = torch.zeros_like(x).to(device) # 3x112x112
+            x_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = x_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
+            x_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (x_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
+                                                                                                        + x_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
+            x_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = x_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
 
             if AE.training or task_model.training:
                 print(AE.training, task_model.training)
                 raise KeyError("VAE and task model should be in the training mode")
         
-            x = x.clip(0, 1) * 255.0
-            x = F.interpolate(x, size=(448, 448)) ### resize to 448x448
-            predictions = task_model(x)
+            x_pred = x_pred.clip(0, 1) * 255.0
+            x_pred = F.interpolate(x_pred, size=(448, 448)) ### resize to 448x448
+            predictions = task_model(x_pred)
 
         batch_size = x.shape[0]
         true_bboxes = cellboxes_to_boxes(labels)
@@ -778,16 +786,26 @@ def AE_dpcaEQ(
             labels = labels.to(device)
 
             ### encode and decode data
-            with torch.no_grad():
+            with torch.no_grad():       
+                x1 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
+                x2 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
+                x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
+                x2[:, :, cropped_image_size_w-20:, :cropped_image_size_h] = x[:, :, cropped_image_size_w-20:, :cropped_image_size_h]
+              
                 if joint:
-                    x = encode_and_decodeEQ(None, None, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+                    x6chan = torch.cat((x1, x2), dim=1)
+                    # x_ = encode_and_decodeEQ(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+                    x_ = encode_and_decodeEQ(None, None, x6chan, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+
                 elif not joint:
-                    x1 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                    x2 = torch.zeros(x.shape[0], 3, cropped_image_size_h, cropped_image_size_h).to(device)
-                    x1[:, :, :cropped_image_size_w, :cropped_image_size_h] = x[:, :, :cropped_image_size_w, :cropped_image_size_h]
-                    x2[:, :, cropped_image_size_w:, :cropped_image_size_h] = x[:, :, cropped_image_size_w:, :cropped_image_size_h]
-    
-                    x = encode_and_decodeEQ(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+                    x_ = encode_and_decodeEQ(x1, x2, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+
+                x_pred = torch.zeros_like(x).to(device) # 3x112x112
+                x_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = x_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
+                x_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (x_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
+                                                                                                        + x_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
+                x_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = x_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
+                x = x_pred
 
                 x = x.clip(0, 1) * 255.0
                 x = F.interpolate(x, size=(448, 448)) ### resize to 448x448

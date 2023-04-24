@@ -25,14 +25,9 @@ cropped_image_size = 112 #84 128
 original_image_size = 128 #100 128
 
 
-def encode_and_decodeEQ(obs, VAE, dpca, dpca_dim:int=0):
+def encode_and_decodeEQ(obs, VAE, dpca, device, vae_model, dpca_dim:int=0):
     obs_tensor = torch.tensor(obs).to(device).float().unsqueeze(0) / 255
-    if vae_model == "SVAE":
-        if dpca is not None:
-            raise NotImplementedError
-        else:
-            obs_rec = VAE(obs_tensor)[0][0, :, :, :].clip(0, 1)
-    elif "Joint" not in vae_model and "BasedVAE" in vae_model:
+    if "Joint" not in vae_model and "BasedVAE" in vae_model:
         obs1 = obs_tensor[:, :3, :, :]
         obs2 = obs_tensor[:, 3:, :, :]
         if dpca is not None:
@@ -57,7 +52,8 @@ def encode_and_decodeEQ(obs, VAE, dpca, dpca_dim:int=0):
             obs_rec = VAE(obs_tensor)[0][:, :, :, :].clip(0, 1)
     return obs_rec
 
-def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_episodes=100):
+def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_dim:int=0, 
+             num_episodes=100, view_from='2image', crop_first=True):
     all_ep_rewards = []
 
     seed = 0
@@ -73,6 +69,7 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
 
     def run_eval_loop():
         num_successes = 0
+        rep_dims = [0, 0, 0]
         if DPCA_tf:
             if "Joint" not in vae_model:
                 # dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
@@ -81,7 +78,6 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
                 dpca, singular_val_vec = JointPCA(VAE, rep_dim=z_dim, device=device, env=dataset)
             ### count importance priority of dimensions
             print(dpca_dim)
-            rep_dims = [0, 0, 0]
             for i in range(dpca_dim):
                 seg = singular_val_vec[i][2]
                 rep_dims[seg] += 1
@@ -97,13 +93,13 @@ def evaluate(policy, VAE, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, n
             while not done:
                 ### with VAE
                 if not crop_first:
-                    #### input 100x100 image
+                    #### input 128x128 image
                     obs_rec = encode_and_decodeEQ(obs, VAE, dpca, dpca_dim)
                     obs_rec = center_crop_image(obs_rec, cropped_image_size)
                 else:
-                    #### input 84x84 image
+                    #### input 112x112 image
                     obs = center_crop_image(obs, cropped_image_size)
-                    obs_rec = encode_and_decodeEQ(obs, VAE, dpca, dpca_dim)
+                    obs_rec = encode_and_decodeEQ(obs, VAE, dpca, device, vae_model, dpca_dim)
                 
                 ### no VAE
                 # obs = center_crop_image(obs, cropped_image_size)
@@ -214,10 +210,10 @@ if __name__ == '__main__':
         rc = "randcrop"
     else:
         rc = "nocrop"
-    if "Joint" in vae_model:
-        rc = "NoPCA_" + rc
+    # if "Joint" in vae_model:
+    #     rc = "NoPCA_" + rc
     # vae_name = f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
-    vae_name = f'{dataset}_{z_dim}_randPCA_8_24_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
+    vae_name = f'{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
     print("VAE is", vae_name)
 
     ### Load policy network here
@@ -226,14 +222,14 @@ if __name__ == '__main__':
         dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'ResBasedVAE':
         nn_complexity = 2
-        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
+        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
     elif vae_model == 'JointCNNBasedVAE':
         nn_complexity = 0
         # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
         dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'JointResBasedVAE':
         nn_complexity = 2
-        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, 3-nn_complexity).to(device)
+        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
     dvae_model.eval()
@@ -243,8 +239,8 @@ if __name__ == '__main__':
 
     if DPCA_tf:
         eval_results = []
-        for dpca_dim in range(min_dpca_dim, max_dpca_dim+1, step_dpca_dim):
-            mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, DPCA_tf, dpca_dim)
+        for dpca_dim in range(max_dpca_dim, min_dpca_dim-1, -step_dpca_dim):
+            mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, vae_model, DPCA_tf, dpca_dim)
             eval_results.append([dpca_dim, mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims[0], rep_dims[1], rep_dims[2]])
 
         header = ['dpca_dim', 'mean_ep_reward', 'best_ep_reward', 'std_ep_reward', 'success_rate', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private']

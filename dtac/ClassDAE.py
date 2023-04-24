@@ -430,6 +430,79 @@ class ResE2D1(nn.Module):
             return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
+class ConcatenateDAE(nn.Module):
+    def __init__(self, DAE, z_dim: int, orig_dim: int): # z_dim is the dimension of the latent space of the one enc in DAE
+        super().__init__()
+        self.DAE = DAE
+        self.DAE.eval()
+        for param in self.DAE.parameters():
+            param.requires_grad = False
+        self.z_dim = z_dim
+        self.orig_dim = orig_dim
+        self.ffenc1 = nn.Sequential(OrderedDict([
+            ('ff1enc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+            ('ff1enc1relu1', nn.ReLU()),
+            ('ff1enc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+            ('ff1enc1relu2', nn.ReLU()),
+            ('ff1enc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+            ]))
+
+        self.ffenc2 = nn.Sequential(OrderedDict([
+            ('ff2enc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+            ('ff2enc1relu1', nn.ReLU()),
+            ('ff2enc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+            ('ff2enc1relu2', nn.ReLU()),
+            ('ff2enc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+            ]))
+
+        self.ffdec = nn.Sequential(OrderedDict([
+            ('ffdec1', nn.Linear(z_dim*2, int((orig_dim+z_dim)*1/3)*2) ),
+            ('ffdec1relu1', nn.ReLU()),
+            ('ffdec2', nn.Linear(int((orig_dim+z_dim)*1/3)*2, int((orig_dim+z_dim)*2/3)*2)),
+            ('ffdec1relu2', nn.ReLU()),
+            ('ffdec3', nn.Linear(int((orig_dim+z_dim)*2/3)*2, orig_dim*2)),
+            ]))
+
+    def parameters(self):
+        return list(self.ffenc1.parameters()) + list(self.ffenc2.parameters()) + list(self.ffdec.parameters())
+    
+    def forward(self, obs1, obs2):
+        z_sample, _ = self.enc(obs1, obs2)
+        ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+        ### leave log_std unused. 
+        num_features = z_sample.shape[1]
+        batch_size = z_sample.shape[0]
+
+        ### decode 
+        obs = torch.cat((obs1, obs2), dim=1)
+        obs_dec = self.dec(z_sample)
+        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        psnr = PSNR(obs_dec, obs)
+
+        ### Normalize
+        z_sample = z_sample - z_sample.mean(dim=0)
+
+        ### nuclear loss 
+        z_sample = z_sample / torch.norm(z_sample, p=2)
+        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+        ### weight parameters recommended by VIC paper: 25, 25, and 10
+        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+    
+    def enc(self, obs1, obs2):
+        z1, _1 = self.DAE.enc1(obs1)
+        z2, _2 = self.DAE.enc1(obs2)
+        z1 = self.ffenc1(z1)
+        z2 = self.ffenc2(z2)
+        z = torch.cat((z1,z2), dim=1)
+        return z, _1
+
+    def dec(self, z):
+        z = self.ffdec(z)
+        z = self.DAE.dec(z)
+        return z
+
+
 class ResE1D1(nn.Module):
     def __init__(self, obs_shape: tuple, z_dim: int, norm_sample: bool=True, n_samples: int=4, n_res_blocks: int=3): # noise=0.01):
         super().__init__()
@@ -477,12 +550,12 @@ class ConcatenateJAE(nn.Module):
         self.z_dim = z_dim
         self.orig_dim = orig_dim
         self.ffenc = nn.Sequential(OrderedDict([
-          ('ffenc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
-          ('ffenc1relu1', nn.ReLU()),
-          ('ffenc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
-          ('ffenc1relu2', nn.ReLU()),
-        ('ffenc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
-        ]))
+            ('ffenc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+            ('ffenc1relu1', nn.ReLU()),
+            ('ffenc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+            ('ffenc1relu2', nn.ReLU()),
+            ('ffenc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+            ]))
 
         self.ffdec = nn.Sequential(OrderedDict([
             ('ffdec1', nn.Linear(z_dim, int((orig_dim+z_dim)*1/3)) ),
@@ -519,14 +592,15 @@ class ConcatenateJAE(nn.Module):
         return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
     
     def enc(self, obs):
-        z = self.JAE.enc(obs)
+        z, _ = self.JAE.enc(obs)
         z = self.ffenc(z)
-        return z
+        return z, _
 
     def dec(self, z):
         z = self.ffdec(z)
         z = self.JAE.dec(z)
         return z
+
 
 if __name__ == '__main__':
     # e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
