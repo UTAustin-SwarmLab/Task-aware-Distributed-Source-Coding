@@ -95,8 +95,8 @@ class ResDecoder(nn.Module):
         if 'airbus' in os.getcwd():
             num_filters=(16, 32, 64, 128)
         elif 'PnP' in os.getcwd():
-            # num_filters=(8, 16, 32, 64) # seed 0
-            num_filters=(16, 32, 64, 128) # seed 10
+            num_filters=(8, 16, 32, 64) # seed 0
+            # num_filters=(16, 32, 64, 128) # seed 10
         else:
             raise ValueError('Unknown dataset')
         assert len(output_shape) == 3

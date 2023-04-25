@@ -93,6 +93,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         raise NotImplementedError
     if histepoch > 0:
         DVAE_awa.load_state_dict(torch.load(model_path + f'/DVAE_awa-{histepoch}.pth'))
+
+    # _ = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), z_dim, z_dim, norm_sample, 4, 1).to(device)
+    # def count_parameters(model):
+    #     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # print("ResE1D1 trainable parameters: ", count_parameters(DVAE_awa))
+    # print("ResE2D1 trainable parameters: ", count_parameters(_))
+    # exit(0)
     DVAE_awa = DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
@@ -165,7 +172,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
         ### save model
         if (ep + 1) % save_interval == 0 or (ep + 1) == 10 or ep == 0:
-            success_rate = evaluate(task_model, DVAE_awa, device, dataset, vae_model, DPCA_tf=False, dpca_dim=0, num_episodes=10)[3]
+            success_rate = evaluate(task_model, DVAE_awa, device, dataset, vae_model, DPCA_tf=False, dpca_dim=0, num_episodes=100)[3]
             summary_writer.add_scalar('Success Rate', success_rate, ep)
             torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')
 
@@ -218,4 +225,3 @@ if __name__ == "__main__":
                   beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=50, lr=args.lr, seed=args.seed,
                   model_path=model_path, dataset_dir=dataset_dir, vae_model=args.vae_model, norm_sample=args.norm_sample,rand_crop=args.rand_crop, 
                   randpca=args.randpca, histepoch=args.histepoch)
-    

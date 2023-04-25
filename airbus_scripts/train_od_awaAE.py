@@ -159,14 +159,18 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 2).to(device)
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
     
-    # _ = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
+    # _ = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), z_dim, z_dim, norm_sample, 4, 1).to(device)
     # def count_parameters(model):
-        # return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    #     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # print("ResE1D1 trainable parameters: ", count_parameters(DVAE_awa))
+    # print("ResE2D1 trainable parameters: ", count_parameters(_))
+    # exit(0)
+
     DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
@@ -280,6 +284,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 if __name__ == "__main__":
     """        
     python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 3000 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -p True
+    python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 3000 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 80 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

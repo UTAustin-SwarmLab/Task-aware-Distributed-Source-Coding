@@ -137,7 +137,9 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
 
 if __name__ == '__main__':
 
-    """python eval_AE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -ns False -crop True -dpca 0 -device 7"""
+    """
+    python eval_DAE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -ns False -crop True -dpca 0 -device 7
+    """
 
     ### take the argument
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
