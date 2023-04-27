@@ -164,7 +164,7 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
                         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
 
     header = ['dpca_dim', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private', 'testmAP']
-    csv_name = f"{dataset}_{z_dim}_taskaware_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}-ep{num_epochs}"+ '.csv'
+    csv_name = f"{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}-ep{num_epochs}"+ '.csv'
     with open('../csv_data/' + csv_name, 'w') as f:
         # create the csv writer
         writer = csv.writer(f)
@@ -176,8 +176,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
 if __name__ == "__main__":
     """        
-    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 449 -l 1e-4 -r 0.0 -k 0.001 -t 0.1 -z 96 -bs 64 --seed 2 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -st 4 -end 12
-    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 649 -l 1e-4 -r 0.0 -k 25.0 -t 0.1 -z 147 -bs 64 --seed 2 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112  -st 4 -end 12
+    python dpca_od_awaDAE.py --dataset airbus --device 5 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -st 4 -end 40
+    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 40 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112  -st 4 -end 40
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

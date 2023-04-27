@@ -564,7 +564,11 @@ class ConcatenateJAE(nn.Module):
             ('ffdec1relu2', nn.ReLU()),
             ('ffdec3', nn.Linear(int((orig_dim+z_dim)*2/3), orig_dim)),
             ]))
-    
+
+    def parameters(self):
+        return list(self.ffenc.parameters()) + list(self.ffdec.parameters())
+   
+
     def forward(self, obs):
         # self.JAE.eval()
         # for param in self.JAE.parameters():
@@ -582,7 +586,7 @@ class ConcatenateJAE(nn.Module):
         psnr = PSNR(obs_dec, obs)
 
         ### Normalize
-        z_sample = z_sample - z_sample.mean(dim=0)
+        z_sample = z - z.mean(dim=0)
 
         ### nuclear loss 
         z_sample = z_sample / torch.norm(z_sample, p=2)

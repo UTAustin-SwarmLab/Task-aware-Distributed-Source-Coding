@@ -185,7 +185,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """
-    python train_concatDAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 48 -origz 32 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model JointCNNBasedVAE --norm_sample False --rand_crop True -orig_e 1000
+    python train_concatDAE.py --dataset PickAndPlace --device 5 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 48 -origz 32 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model JointCNNBasedVAE --norm_sample False --rand_crop True -orig_e 1000
     """
 
     model_path = './models/'

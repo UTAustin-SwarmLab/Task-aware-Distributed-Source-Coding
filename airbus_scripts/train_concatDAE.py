@@ -163,7 +163,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 2).to(device)
+        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=z_dim, orig_dim=orig_z).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
