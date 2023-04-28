@@ -19,10 +19,7 @@ class HardcodePolicy:
                 self.stage_count = 0
                 return self.get_action(gripper_pos)
         if self.stage == 1:  # Moving the gripper
-            if np.linalg.norm(gripper_pos 
-
-        import matplotlib.pyplot as plt
-        plt.imsave(f'{len(observations):03d}.png', obs[:3].transpose(1, 2, 0))- (self.obj_pos + np.array([0, 0, 0.1]))) < 0.02:
+            if np.linalg.norm(gripper_pos - (self.obj_pos + np.array([0, 0, 0.1]))) < 0.02:
                 self.stage = 2
                 return self.get_action(gripper_pos)
             else:
