@@ -84,8 +84,21 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
         else:
             dpca = None
 
+        def save_imgs(obs, step, i):
+            import matplotlib.pyplot as plt
+            import os
+            img1 = obs[:3, :, :].transpose(1, 2, 0)
+            img2 = obs[3:, :, :].transpose(1, 2, 0)
+            os.makedirs(f'temp_imgs/{i:03d}', exist_ok=True)
+            plt.imsave(f'temp_imgs/{i:03d}/{step:03d}-a.png', img1)
+            plt.imsave(f'temp_imgs/{i:03d}/{step:03d}-b.png', img2)
+
         for i in range(num_episodes):
             obs = env.reset()
+            step = 0
+
+            # save_imgs(obs, step, i)
+
             done = False
             episode_reward = 0
             episode_success = False
@@ -117,6 +130,9 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
                 a_pred = mu_pred
                 obs, reward, done, info = env.step(a_pred)
                 j += 1
+
+                step += 1
+                # save_imgs(obs, step, i)
 
                 if info.get('is_success'):
                     episode_success = True
@@ -254,4 +270,9 @@ if __name__ == '__main__':
             writer.writerow(header)
             writer.writerows(eval_results)
     else:
-        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, DPCA_tf)
+        mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, vae_model, DPCA_tf)
+
+    # import os
+    # for i in range(100):
+    #     os.system(f'ffmpeg -i temp_imgs/{i:03d}/%03d-a.png {i:03d}-a.mp4')
+    #     os.system(f'ffmpeg -i temp_imgs/{i:03d}/%03d-b.png {i:03d}-b.mp4')

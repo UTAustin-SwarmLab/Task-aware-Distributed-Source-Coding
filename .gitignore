@@ -147,3 +147,4 @@ results.csv
 *.yaml
 *.png
 cifar10_scripts/data/*
+*.mp4

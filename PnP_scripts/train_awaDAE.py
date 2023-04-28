@@ -57,8 +57,17 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         cropped_image_size = 128
     elif dataset == "PickAndPlace":
         pick = torch.load(dataset_dir + 'pnp_128_20011.pt')
-        obs1 = pick[0][:, 0:3, :, :]
-        obs2 = pick[0][:, 3:6, :, :]
+        
+        pick[2] = torch.tensor(pick[2], dtype=torch.float32)
+        unique, idx, counts = torch.unique(pick[2], dim=0, sorted=True, return_inverse=True, return_counts=True)
+        _, ind_sorted = torch.sort(idx, stable=True)
+        cum_sum = counts.cumsum(0)
+        cum_sum = torch.cat((torch.tensor([0]), cum_sum[:-1]))
+        first_indicies = ind_sorted[cum_sum]
+
+        obs1 = pick[0][first_indicies, 0:3, :, :]
+        obs2 = pick[0][first_indicies, 3:6, :, :]
+        a_gt = pick[2][first_indicies, :]
         cropped_image_size = 112
     else:
         raise NotImplementedError
@@ -108,6 +117,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     print("Random PCA: ", randpca)
 
     cur_iter = 0
+    # torch.autograd.set_detect_anomaly(True)
     for ep in range(histepoch, num_epochs+histepoch):
         ep_loss = []
         np.random.shuffle(index)
@@ -115,6 +125,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             b_idx = index[i * batch_size:(i + 1) * batch_size]
             o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
             o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+            a_gt_batch = torch.tensor(a_gt[b_idx], device=device).float()
 
             if dataset == "PickAndPlace":
                 if rand_crop == True:
@@ -134,9 +145,16 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
                 task_output = task_model(obs_pred.clip(0, 1))[0]
                 obs = torch.cat((o1_batch, o2_batch), dim=1)
-                action_gt = task_model(obs)[0]
+
+                ### learn from task model or dataset
+                action_gt = a_gt_batch
+                # action_gt = task_model(obs)[0]
+                # action_gt[:, 3] = (100*action_gt[:, 3]).clip(-1, 1).detach()
+                # action_gt = action_gt.detach()
+
                 task_loss = torch.mean((action_gt - task_output) ** 2)
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
+                # assert not torch.isnan(loss).any(), "loss is nan"
             elif dataset == "gym_fetch": # gym_fetch
                 raise NotImplementedError
                 if "Joint" not in vae_model and "BasedVAE" in vae_model:
