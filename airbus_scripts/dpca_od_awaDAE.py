@@ -11,12 +11,12 @@ from torch.utils.data import DataLoader
 import argparse
 
 from dtac.ClassDAE import *
-from dtac.object_detection.yolo_model import YoloV1, YoloLoss
+from dtac.object_detection.yolo_model import YoloV1
 from dtac.object_detection.od_utils import *
 
 
 def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, start=0, end=97):
+                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, start=0, end=97, randpca=False):
     ### set paths
     if norm_sample:
         model_type = "VAE"
@@ -26,6 +26,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
     # task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
     task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
     model_path = f'./models/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    if not randpca:
+        model_path = model_path.replace("randPCA", "NoPCA")
 
     ### Set the random seed
     if seed != -1:
@@ -198,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("-ht", "--height", type=int, help="image height", default=448)
     parser.add_argument("-st", "--start", type=int, help="start epoch", default=4)
     parser.add_argument("-end", "--end", type=int, help="end epoch", default=96)
+    parser.add_argument("-p", "--randpca", type=bool, help="perform random pca when training", default=False)
     args = parser.parse_args()
 
     if args.norm_sample == 'True' or args.norm_sample == 'true':
@@ -208,4 +211,4 @@ if __name__ == "__main__":
     dpca_od_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, 
                   weight_cross_penalty=args.cross_penalty, beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, 
                   device=args.device, save_interval=50, lr=args.lr, seed=args.seed, vae_model=args.vae_model, norm_sample=args.norm_sample,
-                  width=args.width, height=args.height, start=args.start, end=args.end)
+                  width=args.width, height=args.height, start=args.start, end=args.end, randpca=args.randpca)

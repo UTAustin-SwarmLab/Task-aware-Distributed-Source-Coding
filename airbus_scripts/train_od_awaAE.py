@@ -29,10 +29,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    # task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
     task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
 
     model_path = f'./models/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    if not randpca:
+        LOG_DIR = LOG_DIR.replace("randPCA", "NoPCA")
+        fig_dir = fig_dir.replace("randPCA", "NoPCA")
+        model_path = model_path.replace("randPCA", "NoPCA")
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
 
     ### Set the random seed
@@ -161,12 +164,15 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     elif vae_model == "JointResBasedVAE":
         DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
+    elif vae_model == "SepResBasedVAE":
+        DVAE_awa = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 2).to(device) ### 4, 2 to balance # of paras
+        print("SepResBasedVAE Input shape", (3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h))
     else:
         raise NotImplementedError
     
-    # _ = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), z_dim, z_dim, norm_sample, 4, 1).to(device)
+    # _ = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
     # def count_parameters(model):
-    #     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        # return sum(p.numel() for p in model.parameters() if p.requires_grad)
     # print("ResE1D1 trainable parameters: ", count_parameters(DVAE_awa))
     # print("ResE2D1 trainable parameters: ", count_parameters(_))
     # exit(0)
@@ -187,23 +193,19 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             o2_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
             o1_batch[:, :, :cropped_image_size_w, :cropped_image_size_h] = obs[:, :, :cropped_image_size_w, :cropped_image_size_h]
             o2_batch[:, :, cropped_image_size_w-20:, :cropped_image_size_h] = obs[:, :, cropped_image_size_w-20:, :cropped_image_size_h]
-
-            if "Joint" not in vae_model:
+            
+            if  "Joint" in vae_model:
+                obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
+            elif "Sep" in vae_model:
+                obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
+            elif "Joint" not in vae_model:
                 obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
-
-                obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
-                obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
-                obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
-                                                                                                        + obs_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
-                obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
-            else:
-                obs6chan = torch.cat((o1_batch, o2_batch), dim=1)
-                obs6chan_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(obs6chan)
-                obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
-                obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs6chan_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
-                obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs6chan_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
-                                                                                                        + obs6chan_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
-                obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs6chan_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
+            
+            obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
+            obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
+            obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
+                                                                                                    + obs_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
+            obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
 
             obs_112_0_255 = obs_pred.clip(0, 1) * 255.0 ##################### important: clip the value to 0-255
             obs_pred_448_0_255 = F.interpolate(obs_112_0_255, size=(448, 448)) ### resize to 448x448

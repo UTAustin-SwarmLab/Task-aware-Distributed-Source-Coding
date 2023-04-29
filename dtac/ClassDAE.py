@@ -430,6 +430,39 @@ class ResE2D1(nn.Module):
             return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
+class ResE2D2(nn.Module):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, norm_sample:bool=True, n_samples: int=4, n_res_blocks: int=3):
+        super().__init__()
+        self.enc1 = ResEncoder(obs_shape1, z_dim1, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc2 = ResEncoder(obs_shape2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.dec1 = ResDecoder(obs_shape1, z_dim1, n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.dec2 = ResDecoder(obs_shape2, z_dim2, n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.norm_sample = norm_sample
+
+    def forward(self, obs1, obs2):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
+        obs = torch.concat((obs1, obs2), dim=1)
+
+        if self.norm_sample:
+            raise NotImplementedError
+        else:
+            ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+            ### leave log_std unused. 
+            num_features = z1.shape[1] + z2.shape[1]
+            batch_size = z1.shape[0]
+
+            obs1_dec = self.dec1(z1)
+            obs2_dec = self.dec2(z2)
+            obs_dec = torch.concat((obs1_dec, obs2_dec), dim=1)
+            mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+            psnr = PSNR(obs_dec, obs)
+
+            ### weight parameters recommended by VIC paper: 25, 25, and 10
+            return obs_dec, torch.mean(mse), 0, 0, 0, psnr
+
+
+
 class ConcatenateDAE(nn.Module):
     def __init__(self, DAE, z_dim: int, orig_dim: int): # z_dim is the dimension of the latent space of the one enc in DAE
         super().__init__()

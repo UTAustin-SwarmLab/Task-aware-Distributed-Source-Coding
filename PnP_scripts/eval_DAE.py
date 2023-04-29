@@ -62,7 +62,12 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
         torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    env = gym.make('PNP-both-v1')
+    if dataset == 'PickAndPlace':
+        env = gym.make('PNP-both-v1')
+    elif dataset == 'Lift':
+        env = gym.make('Lift-both-v1')
+    else:
+        raise NotImplementedError
     # e = gym.make('PNP-side-v1')
     # e = gym.make('PNP-hand-v1')
     env.seed(seed)

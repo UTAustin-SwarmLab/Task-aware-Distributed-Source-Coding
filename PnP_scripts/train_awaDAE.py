@@ -69,6 +69,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         obs2 = pick[0][first_indicies, 3:6, :, :]
         a_gt = pick[2][first_indicies, :]
         cropped_image_size = 112
+    elif dataset == "Lift":
+        pick = torch.load('./lift_hardcode.pt')
+        pick[2] = torch.tensor(pick[2], dtype=torch.float32)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
+        a_gt = pick[2][:, :]
+        cropped_image_size = 112
     else:
         raise NotImplementedError
 
@@ -98,6 +105,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     elif vae_model == "JointResBasedVAE":
         DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
+    elif vae_model == "SepResBasedVAE":
+        DVAE_awa = ResE2D2((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
+        print("SepResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
     if histepoch > 0:
@@ -127,7 +137,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
             a_gt_batch = torch.tensor(a_gt[b_idx], device=device).float()
 
-            if dataset == "PickAndPlace":
+            if dataset == "PickAndPlace" or dataset == "Lift":
                 if rand_crop == True:
                     ### random crop
                     o1_batch, w, h = random_crop_image(o1_batch, cropped_image_size)
