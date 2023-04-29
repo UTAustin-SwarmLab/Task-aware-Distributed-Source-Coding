@@ -28,6 +28,7 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
     model_path = f'./models/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     if not randpca:
         model_path = model_path.replace("randPCA", "NoPCA")
+    print("Random PCA: ", randpca)
 
     ### Set the random seed
     if seed != -1:
@@ -166,7 +167,7 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
                         cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h)
 
     header = ['dpca_dim', 'dim of z1 private', 'dim of z1 share', 'dim of z2 private', 'testmAP']
-    csv_name = f"{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}-ep{num_epochs}"+ '.csv'
+    csv_name = model_path.replace("./models/", "") + f'-ep{num_epochs}' + '.csv'
     with open('../csv_data/' + csv_name, 'w') as f:
         # create the csv writer
         writer = csv.writer(f)
