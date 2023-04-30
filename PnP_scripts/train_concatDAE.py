@@ -12,6 +12,8 @@ from dtac.ClassDAE import *
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image, random_crop_image
 
+from eval_DAE import evaluate
+
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, device=0, save_interval=5,
                   lr=2e-4, seed=0, dataset_dir=None, vae_model="CNNBasedVAE", norm_sample=True, rand_crop=False, orig_z=48, orig_epoch=4000):
     ### set paths
@@ -27,7 +29,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     fig_dir = f'./figures/{dataset}_{orig_z}_{z_dim}_Concat_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     orig_model_path = f'./models/{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
-    task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
     new_model_path = f'./models/{dataset}_{orig_z}_{z_dim}_Concat_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
 
     ### Set the random seed
@@ -57,12 +58,23 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
         cropped_image_size = 112
+        task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
+        ### load task model
+        task_model = Actor((6, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+        task_model.load_state_dict(torch.load(task_model_path))
+    elif dataset == "Lift":
+        pick = torch.load('./lift_hardcode.pt')
+        pick[2] = torch.tensor(pick[2], dtype=torch.float32)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
+        a_gt = pick[2][:, :]
+        cropped_image_size = 112
+        task_model_path = '/home/pl22767/project/dtac-dev/PnP_scripts/models/lift_actor_nocrop2image_sac_lr0.001_seed1/actor2image-849_0.82.pth'
+        task_model = torch.load(task_model_path).to(device)
+        task_model.eval()
     else:
         raise NotImplementedError
-
-    ### load task model
-    task_model = Actor((6, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
-    task_model.load_state_dict(torch.load(task_model_path))
+   
     task_model.eval()
 
     if not os.path.exists(model_path):
@@ -72,16 +84,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
 
-    # if vae_model == "CNNBasedVAE":
-    #     raise NotImplementedError
-    # elif "Joint" in vae_model:
-    #     orig_model_path = "./models/PickAndPlace_48_randPCA_8_24_DAE_NoPCA_randcrop_JointCNNBasedVAE_kl0.0_rec0.0_task100.0_bs128_cov0.0_lr0.0001_seed0"
-    #     nn_complexity = 0
-    #     orig_model = E1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
-    #     orig_model.load_state_dict(torch.load(orig_model_path))
-    #     DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=48, orig_dim=orig_z).to(device)
-    # else:
-    #     raise NotImplementedError
     #     ### distributed models
     if vae_model == "CNNBasedVAE":
         raise NotImplementedError
@@ -90,7 +92,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     elif vae_model == "ResBasedVAE":
         orig_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(orig_z/2), int(orig_z/2), norm_sample, 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
-        DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
+        DVAE_awa = ConcatenateDAE(DAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size))
     ### Joint cropped_image_size
     elif vae_model == "JointCNNBasedVAE":
@@ -98,7 +100,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 3).to(device)
+        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=z_dim, orig_dim=orig_z).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
@@ -119,7 +121,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
             o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
 
-            if dataset == "PickAndPlace":
+            if dataset == "PickAndPlace" or dataset == "Lift":
                 if rand_crop == True:
                     ### random crop
                     o1_batch, w, h = random_crop_image(o1_batch, cropped_image_size)
@@ -136,7 +138,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
                 task_output = task_model(obs_pred.clip(0, 1))[0]
                 obs = torch.cat((o1_batch, o2_batch), dim=1)
-                action_gt = task_model(obs)[0]
+                # action_gt = task_model(obs)[0]
+                action_gt = a_gt[b_idx].clone().detach().to(device).float()
+
                 task_loss = torch.mean((action_gt - task_output) ** 2)
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
             elif dataset == "gym_fetch": # gym_fetch
@@ -172,8 +176,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("Epoch: {}, Loss: {}".format(ep, np.mean(ep_loss)))
 
         ### save model
-        if (ep + 1) % save_interval == 0 or (ep + 1) == 10:
-            torch.save(DVAE_awa.state_dict(), new_model_path + f'/DVAE_awa-{ep}.pth')  
+        if (ep + 1) % save_interval == 0 or (ep + 1) == 10 or ep == 0:
+            success_rate = evaluate(task_model, DVAE_awa, device, dataset, vae_model, DPCA_tf=False, dpca_dim=0, num_episodes=100)[3]
+            summary_writer.add_scalar('Success Rate', success_rate, ep)
+            torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')
 
         ### export figure
         if (ep + 1) % save_interval == 0 or ep == num_epochs - 1 or ep == 0:

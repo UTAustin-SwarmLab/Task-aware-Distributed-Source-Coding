@@ -287,6 +287,12 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
+    elif env == 'Lift':
+        pick = torch.load('./lift_hardcode.pt')
+        cropped_image_size = 112
+        pick[0] = center_crop_image(pick[0], cropped_image_size)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
     elif env == 'cifar10':
         batch_size = 1024
         transform_train=transforms.Compose([
@@ -308,9 +314,9 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
     else: ### airbus dataset
         loader = env
 
-    if env == 'gym_fetch' or env == 'PickAndPlace':
+    if env == 'gym_fetch' or env == 'PickAndPlace' or env == 'Lift':
         index = np.arange(len(obs1))
-        batch = 100
+        batch = 512
         n_batches = len(obs1) // batch
         
         Z = torch.zeros((len(obs1), rep_dim), device=device)
@@ -500,12 +506,18 @@ def JointPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
         pick[0] = center_crop_image(pick[0], cropped_image_size)
         obs1 = pick[0][:, 0:3, :, :]
         obs2 = pick[0][:, 3:6, :, :]
+    elif env == 'Lift':
+        pick = torch.load('./lift_hardcode.pt')
+        cropped_image_size = 112
+        pick[0] = center_crop_image(pick[0], cropped_image_size)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
     else: ### airbus dataset
         loader = env
         
-    if env == 'gym_fetch' or env == 'PickAndPlace':
+    if env == 'gym_fetch' or env == 'PickAndPlace' or env == 'Lift':
         index = np.arange(len(obs1))
-        batch = 100
+        batch = 512
         n_batches = len(obs1) // batch
         
         Z = torch.zeros((len(obs1), rep_dim), device=device)
