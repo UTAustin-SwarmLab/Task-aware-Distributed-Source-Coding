@@ -31,7 +31,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     fig_dir = f'./figures/{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     model_path += f'{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
-    task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
 
     ### Set the random seed
     if seed != -1:
@@ -69,6 +68,11 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         obs2 = pick[0][first_indicies, 3:6, :, :]
         a_gt = pick[2][first_indicies, :]
         cropped_image_size = 112
+        task_model_path = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
+        ### load task model
+        task_model = Actor((6, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+        task_model.load_state_dict(torch.load(task_model_path))
+        task_model.eval()
     elif dataset == "Lift":
         pick = torch.load('./lift_hardcode.pt')
         pick[2] = torch.tensor(pick[2], dtype=torch.float32)
@@ -76,13 +80,12 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         obs2 = pick[0][:, 3:6, :, :]
         a_gt = pick[2][:, :]
         cropped_image_size = 112
+        task_model_path = '/home/pl22767/project/dtac-dev/PnP_scripts/models/lift_actor_nocrop2image_sac_lr0.001_seed1/actor2image-849_0.82.pth'
+        task_model = torch.load(task_model_path).to(device)
+        task_model.eval()
     else:
         raise NotImplementedError
 
-    ### load task model
-    task_model = Actor((6, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
-    task_model.load_state_dict(torch.load(task_model_path))
-    task_model.eval()
 
     if not os.path.exists(model_path):
         os.makedirs(model_path)
@@ -135,7 +138,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             b_idx = index[i * batch_size:(i + 1) * batch_size]
             o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
             o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
-            a_gt_batch = torch.tensor(a_gt[b_idx], device=device).float()
+            # a_gt_batch = torch.tensor(a_gt[b_idx], device=device).float()
+            a_gt_batch = a_gt[b_idx].clone().detach().to(device).float()
 
             if dataset == "PickAndPlace" or dataset == "Lift":
                 if rand_crop == True:
