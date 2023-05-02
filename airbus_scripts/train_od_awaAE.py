@@ -19,6 +19,9 @@ from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
                  device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, randpca=False,):
     ### set paths
@@ -143,13 +146,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     iou, conf = 0.5, 0.4
     print("iou: ", iou, "conf: ", conf)
 
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    if not os.path.exists(fig_dir):
-        os.makedirs(fig_dir)
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
-
     ### distributed models
     if vae_model == "CNNBasedVAE":
         DVAE_awa = E2D1((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
@@ -165,17 +161,24 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "SepResBasedVAE":
-        DVAE_awa = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 2).to(device) ### 4, 2 to balance # of paras
+        DVAE_awa = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device) ### 4, 1 to balance # of paras
         print("SepResBasedVAE Input shape", (3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h))
     else:
         raise NotImplementedError
     
-    # _ = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
-    # def count_parameters(model):
-        # return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # print("ResE1D1 trainable parameters: ", count_parameters(DVAE_awa))
-    # print("ResE2D1 trainable parameters: ", count_parameters(_))
+    # _ = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
+    # print("ResE2D1 trainable parameters: ", count_parameters(DVAE_awa))
+    # print("ResE2D2 trainable parameters: ", count_parameters(_))
     # exit(0)
+
+
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    if not os.path.exists(fig_dir):
+        os.makedirs(fig_dir)
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
 
     DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
@@ -201,6 +204,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             elif "Joint" not in vae_model:
                 obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
             
+            ### post processing 6 channels to 3 channels
             obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
             obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
             obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 

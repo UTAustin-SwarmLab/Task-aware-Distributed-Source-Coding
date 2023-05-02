@@ -86,7 +86,7 @@ class ResEncoder(nn.Module):
         super().__init__()
         if 'airbus' in os.getcwd():
             num_filters=(16, 32, 64, 128)
-            # num_filters=(8, 16, 32, 64) # for E2D2 only
+            # num_filters=(12, 24, 48, 96) # for E2D2 only
         elif 'PnP' in os.getcwd():
             num_filters=(8, 16, 32, 64) # seed 0
             # num_filters=(16, 32, 64, 128) # seed 10

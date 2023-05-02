@@ -27,7 +27,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         rc = "nocrop"
     LOG_DIR = f'./summary/{dataset}_{orig_z}_{z_dim}_Concat_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{orig_z}_{z_dim}_Concat_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    orig_model_path = f'./models/{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
+    orig_model_path = f'./models/{dataset}_{orig_z}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
     new_model_path = f'./models/{dataset}_{orig_z}_{z_dim}_Concat_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
 
@@ -77,8 +77,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
    
     task_model.eval()
 
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
+    if not os.path.exists(new_model_path):
+        os.makedirs(new_model_path)
     if not os.path.exists(fig_dir):
         os.makedirs(fig_dir)
     if not os.path.exists(LOG_DIR):
@@ -179,7 +179,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         if (ep + 1) % save_interval == 0 or (ep + 1) == 10 or ep == 0:
             success_rate = evaluate(task_model, DVAE_awa, device, dataset, vae_model, DPCA_tf=False, dpca_dim=0, num_episodes=100)[3]
             summary_writer.add_scalar('Success Rate', success_rate, ep)
-            torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')
+            torch.save(DVAE_awa.state_dict(), new_model_path + f'/DVAE_awa-{ep}.pth')
 
         ### export figure
         if (ep + 1) % save_interval == 0 or ep == num_epochs - 1 or ep == 0:
@@ -191,10 +191,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """
-    python train_concatDAE.py --dataset PickAndPlace --device 5 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 48 -origz 32 --batch_size 128 --seed 0 --cross_penalty 0.0 --vae_model JointCNNBasedVAE --norm_sample False --rand_crop True -orig_e 1000
+    python train_concatDAE.py --dataset Lift --device 0 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 48 --batch_size 512 --seed 0 --cross_penalty 0.0 --vae_model JointResBasedVAE --norm_sample False --rand_crop True -orig_e 1699
+    python train_concatDAE.py --dataset Lift --device 3 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 96 --batch_size 512 --seed 1 --cross_penalty 0.0 --vae_model ResBasedVAE --norm_sample False --rand_crop True -orig_e 1699
     """
 
-    model_path = './models/'
     dataset_dir = '/store/datasets/gym_fetch/'
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

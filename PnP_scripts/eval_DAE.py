@@ -64,8 +64,10 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
     random.seed(seed)
     if dataset == 'PickAndPlace':
         env = gym.make('PNP-both-v1')
+        print("Env PNP-both-v1")
     elif dataset == 'Lift':
         env = gym.make('Lift-both-v1')
+        print("Env Lift-both-v1")
     else:
         raise NotImplementedError
     # e = gym.make('PNP-side-v1')
@@ -80,7 +82,7 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
                 # dpca, singular_val_vec = DistriburedPCA(VAE, rep_dim=int(z_dim*3/4), device=device, env=dataset)
                 dpca, singular_val_vec = DistriburedPCAEQ(VAE, rep_dim=z_dim, device=device, env=dataset)
             else:
-                dpca, singular_val_vec = JointPCA(VAE, rep_dim=z_dim, device=device, env=dataset)
+                dpca, singular_val_vec = JointPCAEQ(VAE, rep_dim=z_dim, device=device, env=dataset)
             ### count importance priority of dimensions
             print(dpca_dim)
             for i in range(dpca_dim):
@@ -159,7 +161,7 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
 if __name__ == '__main__':
 
     """
-    python eval_DAE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -ns False -crop True -dpca 0 -device 7
+    python eval_DAE.py -z 96 -l 1e-4 -b 512 -r 0 -k 0 -t 500 -corpen 0 -s 1 -vae ResBasedVAE -vae_e 1699 -ns False -crop True -dpca 0 --device 7
     """
 
     ### take the argument
@@ -178,6 +180,7 @@ if __name__ == '__main__':
     parser.add_argument("-ns", "--norm_sample", type=bool, help="Sample from Normal distribution (VAE) or not", default=False)
     parser.add_argument("-crop", "--rand_crop", type=bool, help="randomly crop images", default=True)
     parser.add_argument("-dpca", "--dpca", type=int, help="DPCA or not", default=False)
+    parser.add_argument("-p", "--randpca", type=int, help="Random PCA", default=False)
     args = parser.parse_args()
 
     view_from = '2image' # '2image' or '_side' or '_arm'
@@ -192,9 +195,7 @@ if __name__ == '__main__':
 
     device_num = args.device
     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
-    model_path = ""
-    # model_name = "./gym_fetch/PickAndPlaceActor/actor_254000.pt"
-    model_name = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
+
 
     DPCA_tf = args.dpca # True False
     min_dpca_dim = 4
@@ -218,12 +219,14 @@ if __name__ == '__main__':
     cropped_image_size = 112 # 128 84
     image_orig_size = 128 # 100 128
     vae_path = './models/'
-    dataset = "PickAndPlace" # gym_fetch PickAndPlace
+    dataset = "Lift" # gym_fetch PickAndPlace
     batch_size = args.batch_size # 128
     norm_sample = bool(args.norm_sample) # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
     rand_crop = bool(args.rand_crop) # True False
+    rand_pca = bool(args.randpca) # True False
+    print("Random PCA is", rand_pca)
 
     if norm_sample:
         model_type = "DVAE"
@@ -233,10 +236,11 @@ if __name__ == '__main__':
         rc = "randcrop"
     else:
         rc = "nocrop"
-    # if "Joint" in vae_model:
-    #     rc = "NoPCA_" + rc
-    # vae_name = f'{dataset}_{z_dim}_taskaware_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
+
     vae_name = f'{dataset}_{z_dim}_randPCA_8_48_{model_type}_{rc}_{vae_model}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{VAE_seed}/DVAE_awa-{VAEepoch}.pth'
+    if not rand_pca:
+        vae_name = vae_name.replace('randPCA', 'NoPCA')
+
     print("VAE is", vae_name)
 
     ### Load policy network here
@@ -256,8 +260,13 @@ if __name__ == '__main__':
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
     dvae_model.eval()
-    act_model = Actor((channel, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
-    act_model.load_state_dict(torch.load(model_path + model_name))
+    if dataset == "Lift":
+        act_model_path = '/home/pl22767/project/dtac-dev/PnP_scripts/models/lift_actor_nocrop2image_sac_lr0.001_seed1/actor2image-849_0.82.pth'
+        act_model = torch.load(act_model_path).to(device)
+    elif dataset == "PickAndPlace":
+        model_name = "/store/datasets/gym_fetch/pnp_actor_300000.pt"
+        act_model = Actor((channel, cropped_image_size, cropped_image_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+        act_model.load_state_dict(torch.load(model_name))
     act_model.eval()
 
     if DPCA_tf:
