@@ -185,15 +185,12 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                         all_true_boxes.append([idx] + box)
 
             cur_iter += 1
-            ### export figure
-            # max_imgs = min(batch_size, 8)
-            # vutils.save_image(torch.cat([obs[:max_imgs], obs_pred.clip(0, 1)[:max_imgs]], dim=0).data.cpu(),
-            #     '{}/image_{}.jpg'.format(fig_dir, batch_idx), nrow=8)
 
             obs_orig_112_0_255 = obs_orig_112_0_255.data.cpu().type(torch.uint8)
             obs_112_0_255 = obs_112_0_255.data.cpu().type(torch.uint8)
             for idx in range(batch_size): ### for each image
                 bbox = []
+                truebbox = []
                 for box in all_pred_boxes:
                     i  = box[0]
                     if idx == i:
@@ -207,10 +204,24 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                             bbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
                     elif idx < i:
                         break
+                for box in all_true_boxes:
+                    i  = box[0]
+                    if idx == i:
+                        x, y, w, h = box[-4:]
+                        if x<0 or y<0 or w<=0 or h<=0:
+                            continue
+                        else:
+                            x1, x2 = x - w/2, x + w/2
+                            y1, y2 = y - h/2 ,y + h/2
+                            print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
+                            truebbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
+                    elif idx < i:
+                        break
                 bbox = torch.tensor(bbox, dtype=torch.int)
+                truebbox = torch.tensor(truebbox, dtype=torch.int)
                 if bbox.shape[0] != 0:
-                    true = vutils.draw_bounding_boxes(obs_orig_112_0_255[idx], bbox, width=3, colors=(255,255,0)) / 255.0
-                    pred = vutils.draw_bounding_boxes(obs_112_0_255[idx], bbox, width=3, colors=(255,255,0)) / 255.0
+                    true = vutils.draw_bounding_boxes(obs_orig_112_0_255[idx], truebbox, width=2, colors='green') / 255.0
+                    pred = vutils.draw_bounding_boxes(obs_112_0_255[idx], bbox, width=2, colors='yellow') / 255.0
                     img = torch.cat((true.unsqueeze(0), pred.unsqueeze(0)), dim=0)
                     vutils.save_image(img, f'{fig_dir}/image_{batch_idx}_{idx}_airbus.jpg', nrow=1)
                 else:
