@@ -639,16 +639,90 @@ class ConcatenateJAE(nn.Module):
         return z
 
 
+class ConcatenateSepAE(nn.Module):
+    def __init__(self, SepAE, z_dim: int, orig_dim: int): # z_dim is the dimension of the latent space of the one enc in DAE
+        super().__init__()
+        self.SepAE = SepAE
+        self.SepAE.eval()
+        for param in self.SepAE.parameters():
+            param.requires_grad = False
+        self.z_dim = z_dim
+        self.orig_dim = orig_dim
+        self.ffenc1 = nn.Sequential(OrderedDict([
+            ('ff1enc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+            ('ff1enc1relu1', nn.ReLU()),
+            ('ff1enc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+            ('ff1enc1relu2', nn.ReLU()),
+            ('ff1enc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+            ]))
+
+        self.ffenc2 = nn.Sequential(OrderedDict([
+            ('ff2enc1', nn.Linear(orig_dim, int((orig_dim+z_dim)*2/3)) ),
+            ('ff2enc1relu1', nn.ReLU()),
+            ('ff2enc2', nn.Linear(int((orig_dim+z_dim)*2/3), int((orig_dim+z_dim)*1/3))),
+            ('ff2enc1relu2', nn.ReLU()),
+            ('ff2enc3', nn.Linear(int((orig_dim+z_dim)*1/3), z_dim)),
+            ]))
+
+        self.ffdec1 = nn.Sequential(OrderedDict([
+            ('ff1dec1', nn.Linear(z_dim, int((orig_dim+z_dim)*1/3)) ),
+            ('ff1dec1relu1', nn.ReLU()),
+            ('ff1dec2', nn.Linear(int((orig_dim+z_dim)*1/3), int((orig_dim+z_dim)*2/3))),
+            ('ff1dec1relu2', nn.ReLU()),
+            ('ff1dec3', nn.Linear(int((orig_dim+z_dim)*2/3), orig_dim)),
+            ]))
+        
+        self.ffdec2 = nn.Sequential(OrderedDict([
+            ('ff2dec1', nn.Linear(z_dim, int((orig_dim+z_dim)*1/3)) ),
+            ('ff2dec1relu1', nn.ReLU()),
+            ('ff2dec2', nn.Linear(int((orig_dim+z_dim)*1/3), int((orig_dim+z_dim)*2/3))),
+            ('ff2dec1relu2', nn.ReLU()),
+            ('ff2dec3', nn.Linear(int((orig_dim+z_dim)*2/3), orig_dim)),
+            ]))
+
+    def parameters(self):
+        return list(self.ffenc1.parameters()) + list(self.ffenc2.parameters()) + list(self.ffdec1.parameters()) + list(self.ffdec2.parameters())
+    
+    def forward(self, obs1, obs2):
+        z1, z2 = self.enc(obs1, obs2)
+        batch_size = z1.shape[0]
+        z_sample = torch.cat((z1, z2), dim=1)
+
+        ### decode 
+        obs = torch.cat((obs1, obs2), dim=1)
+        obs_dec = self.dec(z1, z2)
+        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        psnr = PSNR(obs_dec, obs)
+
+        ### Normalize
+        z_sample = z_sample - z_sample.mean(dim=0)
+
+        ### nuclear loss 
+        z_sample = z_sample / torch.norm(z_sample, p=2)
+        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+        ### weight parameters recommended by VIC paper: 25, 25, and 10
+        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+    
+    def enc(self, obs1, obs2):
+        z1, _1 = self.SepAE.enc1(obs1)
+        z2, _2 = self.SepAE.enc1(obs2)
+        z1 = self.ffenc1(z1)
+        z2 = self.ffenc2(z2)
+        return z1, z2
+
+    def dec(self, z1, z2):
+        z1 = self.ffdec1(z1)
+        obs1_dec = self.SepAE.dec1(z1)
+        z2 = self.ffdec2(z2)
+        obs2_dec = self.SepAE.dec2(z2)
+        obs_dec = torch.concat((obs1_dec, obs2_dec), dim=1)
+        return obs_dec
+
+
 if __name__ == '__main__':
-    # e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
-    # rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()
-    # rand_obs2 = torch.rand((16, 3, 128, 128)).cuda()
-    # obsdec, mseloss, kl1, kl2, crosscor = e2d1(rand_obs1, rand_obs2)
-    # print(obsdec.shape, mseloss, kl1, kl2, crosscor)
-
-    e1d1 = ResNetE1D1().cuda()
-    rand_obs = torch.rand((16, 3, 221, 221)).cuda()
-    obsdec, mseloss, std_loss, invar_loss, cov_loss, psnr = e1d1(rand_obs)
-    print(obsdec.shape, mseloss, std_loss, invar_loss, cov_loss, psnr)
-
-
+    e2d1 = E2D1((3, 128, 128), (3, 128, 128), 32, 32).cuda()
+    rand_obs1 = torch.rand((16, 3, 128, 128)).cuda()
+    rand_obs2 = torch.rand((16, 3, 128, 128)).cuda()
+    obsdec, mseloss, kl1, kl2, crosscor = e2d1(rand_obs1, rand_obs2)
+    print(obsdec.shape, mseloss, kl1, kl2, crosscor)

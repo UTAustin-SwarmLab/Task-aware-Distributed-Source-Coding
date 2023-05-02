@@ -167,6 +167,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=z_dim, orig_dim=orig_z).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
+    elif vae_model == "SepResBasedVAE":
+        orig_model = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device) ### 4, 1 to balance # of paras
+        orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
+        DVAE_awa = ConcatenateSepAE(SepAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
     else:
         raise NotImplementedError
 
