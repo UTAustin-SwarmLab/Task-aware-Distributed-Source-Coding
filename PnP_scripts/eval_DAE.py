@@ -64,10 +64,10 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
     random.seed(seed)
     if dataset == 'PickAndPlace':
         env = gym.make('PNP-both-v1')
-        print("Env PNP-both-v1")
+        # print("Env PNP-both-v1")
     elif dataset == 'Lift':
         env = gym.make('Lift-both-v1')
-        print("Env Lift-both-v1")
+        # print("Env Lift-both-v1")
     else:
         raise NotImplementedError
     # e = gym.make('PNP-side-v1')
@@ -199,7 +199,7 @@ if __name__ == '__main__':
 
     DPCA_tf = args.dpca # True False
     min_dpca_dim = 4
-    max_dpca_dim = 48
+    max_dpca_dim = 24
     step_dpca_dim = 4
     if DPCA_tf:
         print("Running DPCA.")

@@ -12,7 +12,7 @@ import argparse
 from tqdm import tqdm
 
 from dtac.ClassDAE import *
-from dtac.object_detection.yolo_model import YoloV1
+from dtac.covar import cov_func
 from dtac.object_detection.od_utils import *
 
 
@@ -82,15 +82,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         cropped_image_size = height
     else:
         raise NotImplementedError
-
-    ### load task model
-    task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
-    checkpoint = torch.load(task_model_path)
-    task_model.load_state_dict(checkpoint["state_dict"])
-    print("=> Loading checkpoint\n", "Train mAP:", checkpoint['Train mAP'], "\tTest mAP:", checkpoint['Test mAP'])
-    task_model.eval()
-    for param in task_model.parameters():
-        param.requires_grad = False
     
     iou, conf = 0.5, 0.4
     print("iou: ", iou, "conf: ", conf)
@@ -120,117 +111,47 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     DVAE_awa.eval()
     DVAE_awa.load_state_dict(torch.load(model_path + f'/DVAE_awa-{num_epochs}.pth'))
+    print("model loaded from: ", model_path + f'/DVAE_awa-{num_epochs}.pth')
 
-    cur_iter = 0
-    for ep in range(1):
+    Z = torch.zeros((test_loader.dataset.__len__(), z_dim), device=device)
+    index = np.arange(test_loader.dataset.__len__())
+    for batch_idx, (obs, out) in enumerate(tqdm(test_loader)):
+        obs_orig_112_0_255, out = obs.to(device), out.to(device)
+        obs = obs_orig_112_0_255 / 255.0
         
-        for batch_idx, (obs, out) in enumerate(tqdm(test_loader)):
-            if batch_idx > 10:
-                break
-
-            obs_orig_112_0_255, out = obs.to(device), out.to(device)
-            obs = obs_orig_112_0_255 / 255.0
-            
-            o1_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
-            o2_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
-            o1_batch[:, :, :cropped_image_size_w, :cropped_image_size_h] = obs[:, :, :cropped_image_size_w, :cropped_image_size_h]
-            o2_batch[:, :, cropped_image_size_w-20:, :cropped_image_size_h] = obs[:, :, cropped_image_size_w-20:, :cropped_image_size_h]
-            
-            if  "Joint" in vae_model:
-                obs6chan = torch.cat((o1_batch, o2_batch), dim=1)
-                obs6chan_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(obs6chan)
-                obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
-                obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs6chan_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
-                obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs6chan_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
-                                                                                                        + obs6chan_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
-                obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs6chan_[:, 3:, cropped_image_size_w:, :cropped_image_size_h] 
-            elif "Sep" in vae_model:
-                obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
-
-                obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
-                obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
-                obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
-                                                                                                        + obs_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
-                obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
-            elif "Joint" not in vae_model:
-                obs_, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
-
-                obs_pred = torch.zeros_like(obs).to(device) # 3x112x112
-                obs_pred[:, :, :cropped_image_size_w-20, :cropped_image_size_h] = obs_[:, :3, :cropped_image_size_w-20, :cropped_image_size_h]
-                obs_pred[:, :, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] = 0.5 * (obs_[:, :3, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h] 
-                                                                                                        + obs_[:, 3:, cropped_image_size_w-20:cropped_image_size_w, :cropped_image_size_h])
-                obs_pred[:, :, cropped_image_size_w:, :cropped_image_size_h] = obs_[:, 3:, cropped_image_size_w:, :cropped_image_size_h]
-
-            obs_112_0_255 = obs_pred.clip(0, 1) * 255.0 ##################### important: clip the value to 0-255
-            obs_pred_448_0_255 = F.interpolate(obs_112_0_255, size=(448, 448)) ### resize to 448x448
-            out_pred = task_model(obs_pred_448_0_255)
-
-            batch_size = obs.shape[0]
-            true_bboxes = cellboxes_to_boxes(out)
-            bboxes = cellboxes_to_boxes(out_pred)
-            all_pred_boxes = []
-            all_true_boxes = []
-            for idx in range(batch_size):
-                nms_boxes = non_max_suppression(bboxes[idx], iou_threshold=iou, threshold=conf, box_format="midpoint")
-
-                for nms_box in nms_boxes:
-                    all_pred_boxes.append([idx] + nms_box)
-
-                for box in true_bboxes[idx]:
-                    # many will get converted to 0 pred
-                    if box[1] > conf:
-                        all_true_boxes.append([idx] + box)
-
-            cur_iter += 1
-
-            obs_orig_112_0_255 = obs_orig_112_0_255.data.cpu().type(torch.uint8)
-            obs_112_0_255 = obs_112_0_255.data.cpu().type(torch.uint8)
-            for idx in range(batch_size): ### for each image
-                bbox = []
-                truebbox = []
-                for box in all_pred_boxes:
-                    i  = box[0]
-                    if idx == i:
-                        x, y, w, h = box[-4:]
-                        if x<0 or y<0 or w<=0 or h<=0:
-                            continue
-                        else:
-                            x1, x2 = x - w/2, x + w/2
-                            y1, y2 = y - h/2 ,y + h/2
-                            print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
-                            bbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
-                    elif idx < i:
-                        break
-                for box in all_true_boxes:
-                    i  = box[0]
-                    if idx == i:
-                        x, y, w, h = box[-4:]
-                        if x<0 or y<0 or w<=0 or h<=0:
-                            continue
-                        else:
-                            x1, x2 = x - w/2, x + w/2
-                            y1, y2 = y - h/2 ,y + h/2
-                            print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
-                            truebbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
-                    elif idx < i:
-                        break
-                bbox = torch.tensor(bbox, dtype=torch.int)
-                truebbox = torch.tensor(truebbox, dtype=torch.int)
-                if bbox.shape[0] != 0:
-                    true = vutils.draw_bounding_boxes(obs_orig_112_0_255[idx], truebbox, width=2, colors='red') / 255.0
-                    pred = vutils.draw_bounding_boxes(obs_112_0_255[idx], bbox, width=2, colors='yellow') / 255.0
-                    img = torch.cat((true.unsqueeze(0), pred.unsqueeze(0)), dim=0)
-                    vutils.save_image(img, f'{fig_dir}/image_{batch_idx}_{idx}_airbus.jpg', nrow=1)
-                else:
-                    img = torch.cat((obs_orig_112_0_255[idx].unsqueeze(0), obs_112_0_255[idx].unsqueeze(0)), dim=0) / 255.0
-                    vutils.save_image(img, f'{fig_dir}/image_{batch_idx}_{idx}.jpg', nrow=1)
-
+        o1_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
+        o2_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
+        o1_batch[:, :, :cropped_image_size_w, :cropped_image_size_h] = obs[:, :, :cropped_image_size_w, :cropped_image_size_h]
+        o2_batch[:, :, cropped_image_size_w-20:, :cropped_image_size_h] = obs[:, :, cropped_image_size_w-20:, :cropped_image_size_h]
+        
+        if "Joint" not in vae_model:
+            z1, _ = DVAE_awa.enc1(o1_batch)
+            z2, _ = DVAE_awa.enc2(o2_batch)
+            z = torch.cat((z1, z2), dim=1)
+            b_idx = index[batch_idx * batch_size:(batch_idx + 1) * batch_size]
+            # print("b_idx: ", b_idx)
+            # print("z shape: ", z.shape)
+            # print("Z shape: ", Z[b_idx, :].shape)
+            # input()
+            Z[b_idx, :] = z
+        else:
+            raise NotImplementedError
+    cov = cov_func(Z[:, :z_dim//2], Z[:, z_dim//2:])
+    print("Z12: ", cov)
+    auto_cov = cov_func(Z[:, z_dim//2:], Z[:, z_dim//2:])
+    auto_cov2 = cov_func(Z[:, :z_dim//2], Z[:, :z_dim//2])
+    print("Z11: ", auto_cov)
+    print("Z22: ", auto_cov2)
+    ### see if any column is all zeros
+    Z = Z.cpu().detach().numpy()
+    _ = Z[:, ~np.all(Z == 0, axis=0)]
+    print("_ shape: ", _.shape)
 
     return
 
 if __name__ == "__main__":
     """        
-    python plot_img.py --dataset airbus --device 0 -l 1e-4 -n 299 -r 0.5 -k 0.0 -t 0.0 -z 80 -bs 64 --seed 1 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112
+    python calculate_cov.py --dataset airbus --device 0 -l 1e-4 -n 299 -r 0.5 -k 0.0 -t 0.0 -z 80 -bs 64 --seed 1 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
@@ -250,6 +171,8 @@ if __name__ == "__main__":
     parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="False")
     parser.add_argument("-wt", "--width", type=int, help="image width", default=256)
     parser.add_argument("-ht", "--height", type=int, help="image height", default=448)
+    # parser.add_argument("-p", "--randpca", type=bool, help="image height", default=448)
+
     args = parser.parse_args()
 
     if args.norm_sample == 'True' or args.norm_sample == 'true':
