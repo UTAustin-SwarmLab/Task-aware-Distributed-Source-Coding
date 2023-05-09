@@ -79,7 +79,7 @@ from collections import OrderedDict
 #         return mean, log_std
 
 
-### Sravan's code
+### New code
 class ResEncoder(nn.Module):
     def __init__(self, input_shape, feature_dim, n_downsamples=4, n_res_blocks=3,
                 n_hidden_layers=2, hidden_size=256):

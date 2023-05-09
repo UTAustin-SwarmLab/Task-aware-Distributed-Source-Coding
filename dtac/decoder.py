@@ -87,7 +87,7 @@ from collections import OrderedDict
 #         out = self.forward_conv(h)
 #         return out
 
-### Sravan's code
+### New code
 class ResDecoder(nn.Module):
     def __init__(self, output_shape, feature_dim, n_upsamples=4, n_res_blocks=1,final_upsample_filters=16,
                 n_hidden_layers=2, hidden_size=256):

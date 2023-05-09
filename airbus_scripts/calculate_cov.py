@@ -137,15 +137,19 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         else:
             raise NotImplementedError
     cov = cov_func(Z[:, :z_dim//2], Z[:, z_dim//2:])
+    if beta_rec == 0:
+        print("Task-aware")
+    else:
+        print("Task-agnostic")
     print("Z12: ", cov)
     auto_cov = cov_func(Z[:, z_dim//2:], Z[:, z_dim//2:])
     auto_cov2 = cov_func(Z[:, :z_dim//2], Z[:, :z_dim//2])
     print("Z11: ", auto_cov)
     print("Z22: ", auto_cov2)
     ### see if any column is all zeros
-    Z = Z.cpu().detach().numpy()
-    _ = Z[:, ~np.all(Z == 0, axis=0)]
-    print("_ shape: ", _.shape)
+    # Z = Z.cpu().detach().numpy()
+    # _ = Z[:, ~np.all(Z == 0, axis=0)]
+    # print("_ shape: ", _.shape)
 
     return
 

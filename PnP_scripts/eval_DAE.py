@@ -128,9 +128,11 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
                 ### Parse image to get the side view or both view
                 if view_from != '2image':
                     if view_from == '_side':
-                        obs_rec = obs_rec[:3, :, :]
+                        obs_rec[:, 3:, :, :] *= 0
                     elif view_from == '_arm':
-                        obs_rec = obs_rec[3:, :, :]
+                        obs_rec[:, :3, :, :] *= 0
+                    else:
+                        raise NotImplementedError
 
                 output = policy(obs_rec)[0].detach().cpu().numpy()[0]
                 mu_pred = output[:4]

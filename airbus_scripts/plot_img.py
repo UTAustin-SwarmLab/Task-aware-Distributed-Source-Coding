@@ -37,6 +37,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(data_seed)
         print("random seed: ", data_seed)
+    
+    fig_dir = fig_dir.replace("randPCA", "NoPCA")
+    model_path = model_path.replace("randPCA", "NoPCA")
 
     device = torch.device("cpu") if args.device <= -1 else torch.device("cuda:" + str(args.device))
 
@@ -197,7 +200,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                         else:
                             x1, x2 = x - w/2, x + w/2
                             y1, y2 = y - h/2 ,y + h/2
-                            print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
+                            # print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
                             bbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
                     elif idx < i:
                         break
@@ -210,13 +213,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                         else:
                             x1, x2 = x - w/2, x + w/2
                             y1, y2 = y - h/2 ,y + h/2
-                            print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
+                            # print(f'x1={x1}, x2={x2}, y1={y1}, y2={y2}, x={x}, y={y}, w={w}, h={h}')
                             truebbox.append((np.array( (x1, y1, x2, y2) ) * 112).astype(int))
                     elif idx < i:
                         break
                 bbox = torch.tensor(bbox, dtype=torch.int)
                 truebbox = torch.tensor(truebbox, dtype=torch.int)
-                if bbox.shape[0] != 0:
+                if bbox.shape[0] != 0 and truebbox.shape[0] != 0:
                     true = vutils.draw_bounding_boxes(obs_orig_112_0_255[idx], truebbox, width=2, colors='red') / 255.0
                     pred = vutils.draw_bounding_boxes(obs_112_0_255[idx], bbox, width=2, colors='yellow') / 255.0
                     img = torch.cat((true.unsqueeze(0), pred.unsqueeze(0)), dim=0)
