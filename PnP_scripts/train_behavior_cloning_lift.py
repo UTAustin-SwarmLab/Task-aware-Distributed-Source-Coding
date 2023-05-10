@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import random
 import os
+import argparse
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
@@ -14,7 +15,7 @@ from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 import gym
 
-def random_crop(imgs, out):
+def random_crop_image(imgs, out):
     """
         args:
         imgs: np.array shape (B,C,H,W)
@@ -31,8 +32,7 @@ def random_crop(imgs, out):
     
     return cropped
 
-
-def evaluate(actor2, seed, device, image_cropped_size, vae_model, num_episodes=100):
+def evaluate(actor2, seed, device, image_cropped_size, vae_model, num_episodes=100, view='2image'):
     all_ep_rewards = []
     env = gym.make('Lift-both-v1')
     env.seed(seed)
@@ -52,12 +52,19 @@ def evaluate(actor2, seed, device, image_cropped_size, vae_model, num_episodes=1
             #### input 112x112 image
             obs = center_crop_image(obs, image_cropped_size)
             obs = torch.tensor(obs).to(device).float().unsqueeze(0) / 255
+            if view != '2image':
+                if view == "arm":
+                    obs = obs[:, 3:, :, :]
+                elif view == "side":
+                    obs = obs[:, :3, :, :]
+                else:
+                    raise NotImplementedError
             if vae_model == 'imgRL':
                 output = actor2(obs)
             elif vae_model == 'sac':
                 output = actor2(obs)[0]
             mu_pred = output[:4]
-            a_pred = mu_pred
+            a_pred = mu_pred.detach().cpu().numpy()[0]
             obs, reward, done, info = env.step(a_pred)
             step += 1
 
@@ -94,10 +101,10 @@ def train2image():
     lr = 1e-3
     batch = 256
     epoch = 1000
-    device_num = 2
+    device_num = 1
     image_cropped_size = 112
     num_episodes = 100
-    vae_model = 'imgRL'
+    vae_model = 'sac'
 
     ### Input: 2 images. Output: action 4 dim
     if vae_model == 'imgRL':
@@ -128,7 +135,7 @@ def train2image():
             assert actor2.training, "Models' train/eval modes are not correct"
             
             b_idx = index[i * batch:(i + 1) * batch]
-            o_batch = random_crop(obs[b_idx], image_cropped_size)
+            o_batch = random_crop_image(obs[b_idx], image_cropped_size)
             o_batch = torch.tensor(o_batch, device=device).float() / 255
             a_batch = torch.tensor(action[b_idx], device=device)
             
@@ -156,5 +163,170 @@ def train2image():
 
     return
 
+def trainArm():
+    seed = 0
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    pick = torch.load('./lift_hardcode.pt')
+
+    obs = pick[0][:, 3:, :, :]
+    action = pick[2]
+
+    lr = 1e-3
+    batch = 256
+    epoch = 1000
+    device_num = 1
+    image_cropped_size = 112
+    num_episodes = 100
+    vae_model = 'sac'
+    device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
+
+    ### Input: 2 images. Output: action 4 dim
+    if vae_model == 'imgRL':
+        model_path = f'./models/lift_actor_nocropArm_imgRL_lr{lr}_seed{seed}/'
+        LOG_DIR = f'./summary/lift_actor_nocropArm_imgRL_lr{lr}_seed{seed}/'
+        actorArm = ImageBasedRLAgent(arch='joint', zdim=action.shape[-1], image_size=image_cropped_size, channels=(256, 128, 64, 32), view=1).to(device)
+    elif vae_model == 'sac':
+        model_path = f'./models/lift_actor_nocropArm_sac_lr{lr}_seed{seed}/'
+        LOG_DIR = f'./summary/lift_actor_nocropArm_sac_lr{lr}_seed{seed}/'
+        actorArm = Actor((3, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+    summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    
+    optimizer = optim.Adam(actorArm.parameters(), lr=lr)
+
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+
+    for ep in range(epoch):
+        actorArm.train()
+        index = np.arange(len(obs))
+        np.random.shuffle(index)
+        n_batches = len(obs) // batch
+        
+        for i in range(n_batches):
+            assert actorArm.training, "Models' train/eval modes are not correct"
+            
+            b_idx = index[i * batch:(i + 1) * batch]
+            o_batch = random_crop_image(obs[b_idx], image_cropped_size)
+            o_batch = torch.tensor(o_batch, device=device).float() / 255
+            a_batch = torch.tensor(action[b_idx], device=device)
+            
+            if vae_model == 'imgRL':
+                output = actorArm(o_batch)
+            elif vae_model == 'sac':
+                output = actorArm(o_batch)[0]
+            a_pred = output[:, :4]
+            loss = torch.mean((a_pred - a_batch) ** 2)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        ### log tensorboard
+        summary_writer.add_scalar('actor loss', loss.item(), ep)
+        ### print loss
+        print("Epoch: {}, Train Loss: {}".format(ep, loss.item()))
+
+        ### save model
+        if (ep + 1) % 50 == 0 or ep == 0:
+            success_rate = evaluate(actorArm, seed, device, image_cropped_size, vae_model, num_episodes, view="arm")[3]
+            summary_writer.add_scalar('Success Rate', success_rate, ep)
+            torch.save(actorArm, model_path + f'actorArm-{ep}_{success_rate}.pth') 
+
+    return
+
+def trainSide():
+    seed = 0
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    pick = torch.load('./lift_hardcode.pt')
+
+    obs = pick[0][:, :3, :, :]
+    action = pick[2]
+
+    lr = 1e-3
+    batch = 256
+    epoch = 1000
+    device_num = 1
+    image_cropped_size = 112
+    num_episodes = 100
+    vae_model = 'sac'
+    device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
+
+    ### Input: 2 images. Output: action 4 dim
+    if vae_model == 'imgRL':
+        model_path = f'./models/lift_actor_nocropSide_imgRL_lr{lr}_seed{seed}/'
+        LOG_DIR = f'./summary/lift_actor_nocropSide_imgRL_lr{lr}_seed{seed}/'
+        actorSide = ImageBasedRLAgent(arch='joint', zdim=action.shape[-1], image_size=image_cropped_size, channels=(256, 128, 64, 32), view=1).to(device)
+    elif vae_model == 'sac':
+        model_path = f'./models/lift_actor_nocropSide_sac_lr{lr}_seed{seed}/'
+        LOG_DIR = f'./summary/lift_actor_nocropSide_sac_lr{lr}_seed{seed}/'
+        actorSide = Actor((3, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+    summary_writer = SummaryWriter(os.path.join(LOG_DIR, 'tb'))
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    
+    optimizer = optim.Adam(actorSide.parameters(), lr=lr)
+
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+
+    for ep in range(epoch):
+        actorSide.train()
+        index = np.arange(len(obs))
+        np.random.shuffle(index)
+        n_batches = len(obs) // batch
+        
+        for i in range(n_batches):
+            assert actorSide.training, "Models' train/eval modes are not correct"
+            
+            b_idx = index[i * batch:(i + 1) * batch]
+            o_batch = random_crop_image(obs[b_idx], image_cropped_size)
+            o_batch = torch.tensor(o_batch, device=device).float() / 255
+            a_batch = torch.tensor(action[b_idx], device=device)
+            
+            if vae_model == 'imgRL':
+                output = actorSide(o_batch)
+            elif vae_model == 'sac':
+                output = actorSide(o_batch)[0]
+            a_pred = output[:, :4]
+            loss = torch.mean((a_pred - a_batch) ** 2)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        ### log tensorboard
+        summary_writer.add_scalar('actor loss', loss.item(), ep)
+        ### print loss
+        print("Epoch: {}, Train Loss: {}".format(ep, loss.item()))
+
+        ### save model
+        if (ep + 1) % 50 == 0 or ep == 5:
+            success_rate = evaluate(actorSide, seed, device, image_cropped_size, vae_model, num_episodes, view="side")[3]
+            summary_writer.add_scalar('Success Rate', success_rate, ep)
+            torch.save(actorSide, model_path + f'actorArm-{ep}_{success_rate}.pth') 
+
+    return
+
 if __name__ == '__main__':
-    train2image()
+    parser = argparse.ArgumentParser(description="train behavior cloning actor")
+    parser.add_argument("-v", "--view", type=str, help="view of agent", default='2image')
+    args = parser.parse_args()
+
+    if args.view == '2image':
+        train2image()
+    elif args.view == 'arm':
+        trainArm()
+    elif args.view == 'side':
+        trainSide()
+    else:
+        raise NotImplementedError
