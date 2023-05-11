@@ -17,7 +17,7 @@ from dtac.object_detection.od_utils import *
 
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, data_seed=-1):
+                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, data_seed=-1, randpca=False):
     ### set paths
     if norm_sample:
         model_type = "VAE"
@@ -38,8 +38,9 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             torch.cuda.manual_seed_all(data_seed)
         print("random seed: ", data_seed)
     
-    fig_dir = fig_dir.replace("randPCA", "NoPCA")
-    model_path = model_path.replace("randPCA", "NoPCA")
+    if not randpca:
+        fig_dir = fig_dir.replace("randPCA", "NoPCA")
+        model_path = model_path.replace("randPCA", "NoPCA")
 
     device = torch.device("cpu") if args.device <= -1 else torch.device("cuda:" + str(args.device))
 
@@ -168,6 +169,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             obs_pred_448_0_255 = F.interpolate(obs_112_0_255, size=(448, 448)) ### resize to 448x448
             out_pred = task_model(obs_pred_448_0_255)
 
+            for idx in range(batch_size): ### for each image
+                img = torch.cat((o1_batch[idx].unsqueeze(0), o2_batch[idx].unsqueeze(0)), dim=0)
+                vutils.save_image(img, f'{fig_dir}/image_2view_{batch_idx}_{idx}.jpg', nrow=2)
+
             batch_size = obs.shape[0]
             true_bboxes = cellboxes_to_boxes(out)
             bboxes = cellboxes_to_boxes(out_pred)
@@ -188,6 +193,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
             obs_orig_112_0_255 = obs_orig_112_0_255.data.cpu().type(torch.uint8)
             obs_112_0_255 = obs_112_0_255.data.cpu().type(torch.uint8)
+            ### substract null image reconstruction
+            # obs_112_0_255 = (obs_112_0_255 - obs_112_0_255[0]).clip(0, 255)
             for idx in range(batch_size): ### for each image
                 bbox = []
                 truebbox = []
@@ -229,11 +236,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     vutils.save_image(img, f'{fig_dir}/image_{batch_idx}_{idx}.jpg', nrow=1)
 
 
+
     return
 
 if __name__ == "__main__":
     """        
     python plot_img.py --dataset airbus --device 0 -l 1e-4 -n 299 -r 0.5 -k 0.0 -t 0.0 -z 80 -bs 64 --seed 1 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112
+    python plot_img.py --dataset airbus --device 7 -l 1e-4 -n 299 -r 0.0 -k 0.0 -t 0.1 -z 40 -bs 64 --seed 1 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 80 -ht 112 -p True
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
@@ -253,6 +262,7 @@ if __name__ == "__main__":
     parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="False")
     parser.add_argument("-wt", "--width", type=int, help="image width", default=256)
     parser.add_argument("-ht", "--height", type=int, help="image height", default=448)
+    parser.add_argument("-p", "--randpca", type=bool, help="perform random pca when training", default=False)
     args = parser.parse_args()
 
     if args.norm_sample == 'True' or args.norm_sample == 'true':
@@ -263,4 +273,4 @@ if __name__ == "__main__":
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, 
                   weight_cross_penalty=args.cross_penalty, beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, 
                   device=args.device, save_interval=50, lr=args.lr, seed=args.seed, vae_model=args.vae_model, norm_sample=args.norm_sample,
-                  width=args.width, height=args.height, data_seed=args.data_seed)
+                  width=args.width, height=args.height, data_seed=args.data_seed, randpca=args.randpca)
