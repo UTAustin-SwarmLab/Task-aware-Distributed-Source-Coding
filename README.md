@@ -1,7 +1,7 @@
 # dtac-dev
 The is the repo of Distributed Task-Aware Compression (dtac). 
 
-Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth]()
+Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](https://arxiv.org/abs/2106.06882)
 ## Table of Contents
 - [Introduction](#introduction)
 - [Results](#results)
@@ -16,7 +16,9 @@ Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth]()
 We design a distributed compression framework which learns low-rank task representations and efficiently distributes bandwidth among sensors to provide a trade-off between performance and bandwidth.
 
 ## Results
-![results](./plots/results.pdf)
+![results](./plots/results.png "results")
+**Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
+**Bottom:** Distribution of total available bandwidth (latent space) among the two views for NDPCA (ours). The unequal allocation highlights the difference in the importance of the views for a given task.
 
 
 ## Installation
@@ -36,10 +38,10 @@ pip install -e .
 The locate and lift experiment needs the gym package and mujoco. To install mujoco, see [install mujoco](https://github.com/openai/mujoco-py).
 
 #### Airbus
-The airbus experiment needs the airbus dataset. To download the dataset, see [Airbus Aircraft Detection](https://www.kaggle.com/datasets/airbusgeo/airbus-aircrafts-sample-dataset).
+The airbus experiment needs the airbus dataset. To download the dataset, see [Airbus Aircraft Detection](https://www.kaggle.com/datasets/airbusgeo/airbus-aircrafts-sample-dataset). \
 After downloading the dataset, place the dataset in the "./airbus_dataset
- folder and run "./airbus_scripts/aircraft-detection-with-yolov8.ipynb".
-Put the output of the notebook in the following folder
+ folder and run "./airbus_scripts/aircraft-detection-with-yolov8.ipynb". \
+Then, Put the output of the notebook in the following folder
 "./airbus_dataset/224x224_overlap28_percent0.3_/train" and "./airbus_dataset/224x224_overlap28_percent0.3_/val".
 
 ### Usage
@@ -48,9 +50,21 @@ Put the output of the notebook in the following folder
 The dtac package contains the following models:
 * ClassDAE.py: Class of Autoencoders
 * DPCA_torch.py: Fuctions of DPCA
+
 and other common utility functions.
 
 #### Locate and lift
+To train an RL agent, run the following command:
+```bash
+python train_behavior_cloning_lift.py -v
+```
+where -v is the views of the agent: "side", "arm", or "2image".
+
+To train the lift and locate NDPCA, run the following command:
+```bash
+python train_awaDAE.py -args
+```
+See the -args examples in the main function of [train_awaDAE.py](PnP_scripts/train_awaDAE.py) file.
 
 #### Airbus
 To train the object detection (Yolo) model, run the following command:
@@ -58,7 +72,7 @@ To train the object detection (Yolo) model, run the following command:
 python airbus_scripts/yolov1_train_detector.py
 ```
 
-To run the train the Airbus NDPCA, run the following command in the "./airbus_scripts" folder:
+To train the Airbus NDPCA, run the following command in the "./airbus_scripts" folder:
 ```bash
 python train_od_awaAE.py -args
 ```
