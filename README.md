@@ -66,6 +66,12 @@ python train_awaDAE.py -args
 ```
 See the -args examples in the main function of [train_awaDAE.py](PnP_scripts/train_awaDAE.py) file.
 
+To evaluate autoencoder models, run the following command in the "./PnP_scripts" folder:
+```bash
+python eval_DAE.py -args
+```
+See the -args examples in the main function of [eval_DAE.py](PnP_scripts/eval_DAE.py) file.
+
 #### Airbus
 To train the object detection (Yolo) model, run the following command:
 ```bash
