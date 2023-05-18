@@ -141,10 +141,9 @@ dmypy.json
 /airbus_dataset/*.csv
 results.csv
 *.txt
-*.jpg
 *.cache
 *.0
 *.yaml
-*.png
+/airbus_scripts/runs/*
 cifar10_scripts/data/*
 *.mp4
