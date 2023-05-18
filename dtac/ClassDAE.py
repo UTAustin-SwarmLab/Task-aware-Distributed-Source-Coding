@@ -387,11 +387,11 @@ class ResE2D1(nn.Module):
             batch_size = z1.shape[0]
 
             ### decode 
-            z_sample = torch.cat((z1, z2), dim=1)
             if random_bottle_neck:
                 # reduce the dimensionality of the data using dpca
                 # use PCA to reduce dimension
                 dim_p = torch.randint(8, int(num_features/2), (1,)).item()
+                # dim_p = int(num_features/2)
 
                 s_1, v_1, mu_1 = data_pca(z1)
                 s_2, v_2, mu_2 = data_pca(z2)
@@ -411,9 +411,12 @@ class ResE2D1(nn.Module):
                 # z_o = torch.cat((z1_p,z2_p), 1)
 
                 # project back the latent to full dim
-                z1_b =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
-                z2_b =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
-                z_sample = torch.cat((z1_b,z2_b),1)
+                z1 =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+                z2 =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+
+            cos_sim = torch.nn.CosineSimilarity()
+            cos_loss = torch.mean(cos_sim(z1, z2))
+            z_sample = torch.cat((z1, z2), dim=1)
 
             obs_dec = self.dec(z_sample)
             mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
@@ -427,7 +430,7 @@ class ResE2D1(nn.Module):
             nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
             ### weight parameters recommended by VIC paper: 25, 25, and 10
-            return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+            return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, psnr
 
 
 class ResE2D2(nn.Module):

@@ -9,7 +9,7 @@ import torchvision.utils as vutils
 import random
 import torch.optim as optim
 from torch.utils.data import DataLoader
-### to start tensorboard:  tensorboard --logdir=./airbus_scripts/summary --port=6006
+## to start tensorboard: tensorboard --logdir=./airbus_scripts/summary --port=6006
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from tqdm import tqdm
@@ -289,8 +289,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """        
-    python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 3000 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -p True
-    python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 3000 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 80 -ht 112
+    python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 351 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -p True
+    python train_od_awaAE.py --dataset airbus --device 6 -l 1e-4 -n 351 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 80 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
