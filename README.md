@@ -8,7 +8,7 @@ Link to paper: [TBD](Task-aware Distributed Source Coding under Dynamic Bandwidt
 - [Installation](#installation)
   - [Packages](#packages)
   - [Dataset](#dataset)
-  - [Usage](#usage)
+- [Usage](#usage)
 - [Citation](#citation)
 
 ## TLDR
@@ -43,30 +43,33 @@ pip install -e .
 
 ### Dataset
 #### Locate and lift
-The locate and lift experiment needs the gym package and mujoco. To install mujoco, see [install mujoco](https://github.com/openai/mujoco-py).
+The locate and lift experiment needs the gym package (see [setup.py](setup.py) or [requirements.txt](requirements.txt)) and mujoco. To install mujoco, see [install mujoco](https://github.com/openai/mujoco-py). \
+To collect the demonstration dataset used for training of RL agent and the autoencoders, run the following command:
+```bash
+python collect_lift_hardcode.py
+```
 
 #### Airbus
 The airbus experiment needs the airbus dataset. To download the dataset, see [Airbus Aircraft Detection](https://www.kaggle.com/datasets/airbusgeo/airbus-aircrafts-sample-dataset). \
 After downloading the dataset, place the dataset in the "./airbus_dataset
  folder and run "./airbus_scripts/aircraft-detection-with-yolov8.ipynb". \
 Then, put the output of the notebook in the following folder
-"./airbus_dataset/224x224_overlap28_percent0.3_/train" and "./airbus_dataset/224x224_overlap28_percent0.3_/val".
+"./airbus_dataset/224x224_overlap28_percent0.3_/train" and "./airbus_dataset/224x224_overlap28_percent0.3_/val". \
+Finally, augment the dataset with mosaic at "./mosaic/":
+```bash
+python main.py --width 224 --height 224 --scale_x 0.4 --scale_y 0.6 --min_area 500 --min_vi 0.3 --path
+```
 
-### Usage
+## Usage
 
-#### dtac package
+### dtac package
 The dtac package contains the following models:
 * ClassDAE.py: Class of Autoencoders
 * DPCA_torch.py: Fuctions of DPCA
 
 and other common utility functions.
 
-#### Locate and lift
-To collect the demonstration dataset used for training of RL agent and the autoencoders, run the following command:
-```bash
-python collect_lift_hardcode.py
-```
-
+### Locate and lift
 To train an RL agent, run the following command:
 ```bash
 python train_behavior_cloning_lift.py -v
@@ -85,7 +88,7 @@ python eval_DAE.py -args
 ```
 See the -args examples in the main function of [eval_DAE.py](PnP_scripts/eval_DAE.py) file.
 
-#### Airbus
+### Airbus
 To train the object detection (Yolo) model, run the following command:
 ```bash
 python airbus_scripts/yolov1_train_detector.py
