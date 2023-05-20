@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image             
-from dtac.ClassAE import *
+from dtac.ClassDAE import *
 
 def PCA(input_data, device): 
     '''

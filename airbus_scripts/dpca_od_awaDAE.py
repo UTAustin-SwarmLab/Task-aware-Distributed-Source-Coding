@@ -16,12 +16,9 @@ from dtac.object_detection.od_utils import *
 
 
 def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, start=0, end=97, randpca=False):
+                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", width=448, height=448, start=0, end=97, randpca=False):
     ### set paths
-    if norm_sample:
-        model_type = "VAE"
-    else:
-        model_type = "AE"
+    model_type = "AE"
 
     # task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_896x512/yolov1_512x896_ep240_map0.97_0.99.pth"
     task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
@@ -136,18 +133,17 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
     ### distributed models
     if vae_model == "CNNBasedVAE":
-        # DVAE_awa = E2D1(obs1.shape[1:], obs2.shape[1:], int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
-        DVAE_awa = E2D1NonSym((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E2D1NonSym((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size_w, cropped_image_size_h))
     elif vae_model == "ResBasedVAE":
-        DVAE_awa = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
+        DVAE_awa = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), 4, 1).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h))
     ### Joint models
     elif vae_model == "JointCNNBasedVAE":
-        DVAE_awa = E1D1((3, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E1D1((3, cropped_image_size, cropped_image_size), z_dim, 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (3, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
+        DVAE_awa = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, 4, 1).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     else:
         raise NotImplementedError
@@ -179,8 +175,8 @@ def dpca_od_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, be
 
 if __name__ == "__main__":
     """        
-    python dpca_od_awaDAE.py --dataset airbus --device 5 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112 -st 4 -end 40
-    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 40 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -ns False -wt 64 -ht 112  -st 4 -end 40
+    python dpca_od_awaDAE.py --dataset airbus --device 5 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 80 -bs 64 --seed 0 -corpen 0.0 -vae ResBasedVAE -wt 80 -ht 112 -st 4 -end 40
+    python dpca_od_awaDAE.py --dataset airbus --device 7 -n 299 -l 1e-4 -r 0.0 -k 0.0 -t 0.1 -z 40 -bs 64 --seed 0 -corpen 0.0 -vae JointResBasedVAE -wt 64 -ht 112 -st 4 -end 40
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
@@ -196,7 +192,6 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, help="seed", default=100)
     parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=-1)
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
-    parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="True")
     parser.add_argument("-wt", "--width", type=int, help="image width", default=256)
     parser.add_argument("-ht", "--height", type=int, help="image height", default=448)
     parser.add_argument("-st", "--start", type=int, help="start epoch", default=4)
@@ -204,12 +199,8 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--randpca", type=bool, help="perform random pca when training", default=False)
     args = parser.parse_args()
 
-    if args.norm_sample == 'True' or args.norm_sample == 'true':
-        args.norm_sample = True
-    else:
-        args.norm_sample = False
 
     dpca_od_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, 
                   weight_cross_penalty=args.cross_penalty, beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, 
-                  device=args.device, save_interval=50, lr=args.lr, seed=args.seed, vae_model=args.vae_model, norm_sample=args.norm_sample,
+                  device=args.device, save_interval=50, lr=args.lr, seed=args.seed, vae_model=args.vae_model, 
                   width=args.width, height=args.height, start=args.start, end=args.end, randpca=args.randpca)

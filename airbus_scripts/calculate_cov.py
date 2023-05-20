@@ -155,7 +155,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """        
-    python calculate_cov.py --dataset airbus --device 0 -l 1e-4 -n 299 -r 0.5 -k 0.0 -t 0.0 -z 80 -bs 64 --seed 1 -corpen 0.0 -vae ResBasedVAE -ns False -wt 80 -ht 112
+    python calculate_cov.py --dataset airbus --device 0 -l 1e-4 -n 299 -r 0.5 -k 0.0 -t 0.0 -z 80 -bs 64 --seed 1 -corpen 0.0 -vae ResBasedVAE -wt 80 -ht 112
     """
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")

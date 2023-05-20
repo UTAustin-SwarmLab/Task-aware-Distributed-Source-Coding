@@ -10,7 +10,7 @@ from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.DPCA_torch import *
 # from dtac.gym_fetch.env_wrapper import env_wrapper
-from dtac.ClassAE import *
+from dtac.ClassDAE import *
 
 import dtac
 import gym
@@ -111,7 +111,7 @@ def evaluate(policy, device, dataset, DPCA_tf:bool=False, dpca_dim:int=0, num_ep
 
 
 if __name__ == '__main__':
-    """python eval_AE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -ns False -crop True -dpca 0"""
+    """python eval_AE.py -z 64 -l 1e-3 -b 128 -r 10000 -k 25 -t 0 -corpen 10 -s 0 -vae CNNBasedVAE -vae_e 99 -crop True -dpca 0"""
     ### take the argument
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
     parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=7)

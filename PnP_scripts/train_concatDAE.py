@@ -15,12 +15,9 @@ from dtac.gym_fetch.utils import center_crop_image, random_crop_image
 from eval_DAE import evaluate
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, device=0, save_interval=5,
-                  lr=2e-4, seed=0, dataset_dir=None, vae_model="CNNBasedVAE", norm_sample=True, rand_crop=False, orig_z=48, orig_epoch=4000):
+                  lr=2e-4, seed=0, dataset_dir=None, vae_model="CNNBasedVAE", rand_crop=False, orig_z=48, orig_epoch=4000):
     ### set paths
-    if norm_sample:
-        model_type = "DVAE"
-    else:
-        model_type = "DAE"
+    model_type = "DAE"
     if rand_crop:
         rc = "randcrop"
     else:
@@ -87,20 +84,20 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     #     ### distributed models
     if vae_model == "CNNBasedVAE":
         raise NotImplementedError
-        DVAE_awa = E2D1((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E2D1((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size_w, cropped_image_size_h))
     elif vae_model == "ResBasedVAE":
-        orig_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(orig_z/2), int(orig_z/2), norm_sample, 4, 1).to(device)
+        orig_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(orig_z/2), int(orig_z/2), 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateDAE(DAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size))
     ### Joint cropped_image_size
     elif vae_model == "JointCNNBasedVAE":
         raise NotImplementedError
-        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, 4, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 1).to(device)
+        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=z_dim, orig_dim=orig_z).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
@@ -191,8 +188,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """
-    python train_concatDAE.py --dataset Lift --device 0 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 48 --batch_size 512 --seed 0 --cross_penalty 0.0 --vae_model JointResBasedVAE --norm_sample False --rand_crop True -orig_e 1699
-    python train_concatDAE.py --dataset Lift --device 3 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 96 --batch_size 512 --seed 1 --cross_penalty 0.0 --vae_model ResBasedVAE --norm_sample False --rand_crop True -orig_e 1699
+    python train_concatDAE.py --dataset Lift --device 0 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 48 --batch_size 512 --seed 0 --cross_penalty 0.0 --vae_model JointResBasedVAE --rand_crop True -orig_e 1699
+    python train_concatDAE.py --dataset Lift --device 3 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 4 -origz 96 --batch_size 512 --seed 1 --cross_penalty 0.0 --vae_model ResBasedVAE --rand_crop True -orig_e 1699
     """
 
     dataset_dir = '/store/datasets/gym_fetch/'
@@ -213,18 +210,12 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--epoch", type=int, help="epoch: total epoch of training", default=1000)
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
     parser.add_argument("-task_e", "--task_model_epoch", type=int, help="task model eposh", default=99)
-    parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="True")
     parser.add_argument("-crop", "--rand_crop", type=bool, help="randomly crop images", default=False)
     parser.add_argument("-orig_e", "--orig_epoch", type=int, help="epoch of original model", default=112)
 
     args = parser.parse_args()
 
-    if args.norm_sample == 'True' or args.norm_sample == 'true':
-        args.norm_sample = True
-    else:
-        args.norm_sample = False
-
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, weight_cross_penalty=args.cross_penalty, 
                   beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=50, lr=args.lr, seed=args.seed,
-                  dataset_dir=dataset_dir, vae_model=args.vae_model, norm_sample=args.norm_sample,rand_crop=args.rand_crop, orig_z=args.orig_z, orig_epoch=args.orig_epoch)
+                  dataset_dir=dataset_dir, vae_model=args.vae_model, rand_crop=args.rand_crop, orig_z=args.orig_z, orig_epoch=args.orig_epoch)
     

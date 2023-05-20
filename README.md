@@ -21,10 +21,13 @@ Efficient compression of correlated data is essential to minimize communication 
 </details>
 
 ## Results
+<details>
+<summary>Click to expand</summary>
+
 ![results](./plots/results.png "results")
 **Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
 **Bottom:** Distribution of total available bandwidth (latent space) among the two views for NDPCA (ours). The unequal allocation highlights the difference in the importance of the views for a given task.
-
+</details>
 
 ## Installation
 ### Packages
@@ -59,6 +62,11 @@ The dtac package contains the following models:
 and other common utility functions.
 
 #### Locate and lift
+To collect the demonstration dataset used for training of RL agent and the autoencoders, run the following command:
+```bash
+python collect_lift_hardcode.py
+```
+
 To train an RL agent, run the following command:
 ```bash
 python train_behavior_cloning_lift.py -v

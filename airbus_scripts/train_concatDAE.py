@@ -20,12 +20,9 @@ from dtac.object_detection.od_utils import *
 
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
-                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", norm_sample=True, width=448, height=448, orig_z=80, orig_epoch=4000):
+                 device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", width=448, height=448, orig_z=80, orig_epoch=4000):
     ### set paths
-    if norm_sample:
-        model_type = "VAE"
-    else:
-        model_type = "AE"
+    model_type = "AE"
 
     LOG_DIR = f'./summary/{dataset}_{orig_z}_{z_dim}_cancat_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{orig_z}_{z_dim}_cancat_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
@@ -150,25 +147,25 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     ### distributed models
     if vae_model == "CNNBasedVAE":
         raise NotImplementedError
-        DVAE_awa = E2D1((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4-seed, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E2D1((3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_w, cropped_image_size_h), int(z_dim/2), int(z_dim/2), 4-seed, int(128/(seed+1)), 2, 128).to(device)
         print("CNNBasedVAE Input shape", (3, cropped_image_size_w, cropped_image_size_h))
     elif vae_model == "ResBasedVAE":
-        orig_model = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(orig_z/2), int(orig_z/2), norm_sample, 4, 1).to(device)
+        orig_model = ResE2D1((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(orig_z/2), int(orig_z/2), 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateDAE(DAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
         print("ResBasedVAE Input shape", (3, cropped_image_size_w, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h))
     ### Joint models
     elif vae_model == "JointCNNBasedVAE":
         raise NotImplementedError
-        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, int(128/(seed+1)), 2, 128).to(device)
+        DVAE_awa = E1D1((6, cropped_image_size, cropped_image_size), z_dim, 4, int(128/(seed+1)), 2, 128).to(device)
         print("JointCNNBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "JointResBasedVAE":
-        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, norm_sample, 4, 1).to(device)
+        orig_model = ResE1D1((6, cropped_image_size, cropped_image_size), orig_z, 4, 1).to(device)
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateJAE(JAE=orig_model, z_dim=z_dim, orig_dim=orig_z).to(device)
         print("JointResBasedVAE Input shape", (6, cropped_image_size, cropped_image_size))
     elif vae_model == "SepResBasedVAE":
-        orig_model = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device) ### 4, 1 to balance # of paras
+        orig_model = ResE2D2((3, cropped_image_size_h, cropped_image_size_h), (3, cropped_image_size_h, cropped_image_size_h), int(z_dim/2), int(z_dim/2), 4, 1).to(device) ### 4, 1 to balance # of paras
         orig_model.load_state_dict(torch.load(orig_model_path+f'/DVAE_awa-{orig_epoch}.pth'))
         DVAE_awa = ConcatenateSepAE(SepAE=orig_model, z_dim=int(z_dim/2), orig_dim=int(orig_z/2)).to(device)
     else:
@@ -286,7 +283,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """
-    python train_concatDAE.py --dataset airbus --device 6 --lr 1e-4 --num_epochs 1500 --beta_rec 0.0 --beta_kl 0.0 --beta_task 0.1 --z_dim 12 -origz 80 --batch_size 64 --seed 40 --cross_penalty 0.0 --vae_model ResBasedVAE --norm_sample False -orig_e 299
+    python train_concatDAE.py --dataset airbus --device 6 --lr 1e-4 --num_epochs 1500 --beta_rec 0.0 --beta_kl 0.0 --beta_task 0.1 --z_dim 12 -origz 80 --batch_size 64 --seed 40 --cross_penalty 0.0 --vae_model ResBasedVAE -orig_e 299
     """
 
     model_path = './models/'
@@ -307,18 +304,12 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=-1)
     parser.add_argument("-e", "--epoch", type=int, help="epoch: total epoch of training", default=1000)
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
-    parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="True")
     parser.add_argument("-wt", "--width", type=int, help="width of observation", default=80)
     parser.add_argument("-ht", "--height", type=int, help="width of observation", default=112)
     parser.add_argument("-orig_e", "--orig_epoch", type=int, help="epoch of original model", default=112)
     args = parser.parse_args()
 
-    if args.norm_sample == 'True' or args.norm_sample == 'true':
-        args.norm_sample = True
-    else:
-        args.norm_sample = False
-
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, weight_cross_penalty=args.cross_penalty, 
                   beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=50, lr=args.lr, seed=args.seed,
-                  vae_model=args.vae_model, norm_sample=args.norm_sample, width=args.width, height=args.height, orig_z=args.orig_z, orig_epoch=args.orig_epoch)
+                  vae_model=args.vae_model, width=args.width, height=args.height, orig_z=args.orig_z, orig_epoch=args.orig_epoch)
     

@@ -50,8 +50,6 @@ class HardcodePolicy:
         self.stage_count = 0
         self.obj_pos = obj_pos
         
-
-
 e = gym.make('Lift-both-v1')
 
 total_samples = 20000

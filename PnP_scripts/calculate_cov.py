@@ -142,7 +142,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
 if __name__ == "__main__":
     """        
-    python calculate_cov.py --dataset Lift --device 1 -l 1e-4 -n 1699 -r 0 -k 0.0 -t 500.0 -z 96 -b 512 --seed 1 -corpen 0.0 -vae ResBasedVAE -ns False -p True
+    python calculate_cov.py --dataset Lift --device 1 -l 1e-4 -n 1699 -r 0 -k 0.0 -t 500.0 -z 96 -b 512 --seed 1 -corpen 0.0 -vae ResBasedVAE -p True
     """
 
     model_path = './models/'
@@ -166,7 +166,6 @@ if __name__ == "__main__":
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
     parser.add_argument("-ns", "--norm_sample", type=str, help="Sample from Normal distribution (VAE) or not", default="True")
     parser.add_argument("-p", "--randpca", type=bool, help="perform random pca when training", default=False)
-    
     parser.add_argument("-ds", "--data_seed", type=int, help="seed of dataset", default=20)
     parser.add_argument("-crop", "--rand_crop", type=bool, help="randomly crop images", default=True)
     args = parser.parse_args()

@@ -9,7 +9,6 @@ import csv
 from dtac.gym_fetch.utils import center_crop_image
 from dtac.gym_fetch.curl_sac import Actor
 from dtac.DPCA_torch import *
-# from dtac.ClassAE import *
 from dtac.ClassDAE import *
 
 import gym
@@ -163,7 +162,7 @@ def evaluate(policy, VAE, device, dataset, vae_model, DPCA_tf:bool=False, dpca_d
 if __name__ == '__main__':
 
     """
-    python eval_DAE.py -z 96 -l 1e-4 -b 512 -r 0 -k 0 -t 500 -corpen 0 -s 1 -vae ResBasedVAE -vae_e 1699 -ns False -crop True -dpca 0 --device 7
+    python eval_DAE.py -z 96 -l 1e-4 -b 512 -r 0 -k 0 -t 500 -corpen 0 -s 1 -vae ResBasedVAE -vae_e 1699 -crop True -dpca 0 --device 7
     """
 
     ### take the argument
@@ -179,7 +178,6 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=7)
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="CNNBasedVAE")
     parser.add_argument("-vae_e", "--vae_epoch", type=int, help="task model eposh", default=99)
-    parser.add_argument("-ns", "--norm_sample", type=bool, help="Sample from Normal distribution (VAE) or not", default=False)
     parser.add_argument("-crop", "--rand_crop", type=bool, help="randomly crop images", default=True)
     parser.add_argument("-dpca", "--dpca", type=int, help="DPCA or not", default=False)
     parser.add_argument("-p", "--randpca", type=int, help="Random PCA", default=False)
@@ -190,10 +188,6 @@ if __name__ == '__main__':
     if view_from == '2image':
         view, channel = 2, 6
 
-    if args.norm_sample == 'True' or args.norm_sample == 'true':
-        args.norm_sample = True
-    else:
-        args.norm_sample = False
 
     device_num = args.device
     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
@@ -223,17 +217,13 @@ if __name__ == '__main__':
     vae_path = './models/'
     dataset = "Lift" # gym_fetch PickAndPlace
     batch_size = args.batch_size # 128
-    norm_sample = bool(args.norm_sample) # False True
     VAEcrop = '_True' # '_True' or '' or '_False'
     crop_first = True # False True
     rand_crop = bool(args.rand_crop) # True False
     rand_pca = bool(args.randpca) # True False
     print("Random PCA is", rand_pca)
 
-    if norm_sample:
-        model_type = "DVAE"
-    else:
-        model_type = "DAE"
+    model_type = "DAE"
     if rand_crop:
         rc = "randcrop"
     else:
@@ -248,17 +238,17 @@ if __name__ == '__main__':
     ### Load policy network here
     if vae_model == 'CNNBasedVAE':
         nn_complexity = 0
-        dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
+        dvae_model = E2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'ResBasedVAE':
         nn_complexity = 2
-        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), norm_sample, 4, 1).to(device)
+        dvae_model = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), int(z_dim/2), int(z_dim/2), 4, 1).to(device)
     elif vae_model == 'JointCNNBasedVAE':
         nn_complexity = 0
-        # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 3, 64, 2, 128).to(device)
-        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
+        # dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, 3, 64, 2, 128).to(device)
+        dvae_model = E1D1((6, cropped_image_size, cropped_image_size), z_dim, 4-nn_complexity, int(128/(nn_complexity+1)), 2, 128).to(device)
     elif vae_model == 'JointResBasedVAE':
         nn_complexity = 2
-        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, norm_sample, 4, 1).to(device)
+        dvae_model = ResE1D1((6, cropped_image_size, cropped_image_size), z_dim, 4, 1).to(device)
 
     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
     dvae_model.eval()

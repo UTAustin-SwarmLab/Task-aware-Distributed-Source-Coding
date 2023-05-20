@@ -979,7 +979,7 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
     from ultralytics import YOLO
     from dtac.object_detection.yolo_model import YoloV1
-    from dtac.gym_fetch.ClassAE import *
+    from dtac.gym_fetch.ClassDAE import *
 
     size = 112
     file_parent_dir = f'../../airbus_dataset/512x512_overlap64_percent0.3_/'
