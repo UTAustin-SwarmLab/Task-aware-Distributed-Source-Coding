@@ -1,9 +1,9 @@
 # dtac-dev
-The is the repo of Distributed Task-Aware Compression (dtac). 
+The is the repo of **D**istributed **T**ask-**a**ware **C**ompression (dtac). 
 
-Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](https://arxiv.org/abs/2106.06882)
+Link to paper: [TBD](Task-aware Distributed Source Coding under Dynamic Bandwidth)
 ## Table of Contents
-- [Introduction](#introduction)
+- [TLDR](#TLDR)
 - [Results](#results)
 - [Installation](#installation)
   - [Packages](#packages)
@@ -11,9 +11,14 @@ Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](ht
   - [Usage](#usage)
 - [Citation](#citation)
 
-## Introduction
-**TLDR**: \
+## TLDR
 We design a distributed compression framework which learns low-rank task representations and efficiently distributes bandwidth among sensors to provide a trade-off between performance and bandwidth.
+
+## Abstract
+<details>
+<summary>Click to expand</summary>
+Efficient compression of correlated data is essential to minimize communication overload in multi-sensor networks. In such networks, each sensor independently compresses the data and transmits them to a central node due to limited communication bandwidth. A decoder at the central node decompresses and passes the data to a pre-trained machine learning-based task to generate the final output. Thus, it is important to compress features that are relevant to the task. Additionally, the final performance depends heavily on the total available bandwidth. In practice, it is common to encounter varying availability in bandwidth, and higher bandwidth results in better performance of the task. We design a novel distributed compression framework composed of independent encoders and a joint decoder, which we call neural distributed principal component analysis (NDPCA). NDPCA flexibly compresses data from multiple sources to any available bandwidth with a single model, reducing computing and storage overhead. NDPCA achieves this by learning low-rank task representations and efficiently distributing bandwidth among sensors, thus providing a graceful trade-off between performance and bandwidth. Experiments show that NDPCA improves the success rate of multi-view robotic arm manipulation by 9% and the accuracy of object detection tasks on satellite imagery by 14% compared to an autoencoder with uniform bandwidth allocation.
+</details>
 
 ## Results
 ![results](./plots/results.png "results")
@@ -41,7 +46,7 @@ The locate and lift experiment needs the gym package and mujoco. To install mujo
 The airbus experiment needs the airbus dataset. To download the dataset, see [Airbus Aircraft Detection](https://www.kaggle.com/datasets/airbusgeo/airbus-aircrafts-sample-dataset). \
 After downloading the dataset, place the dataset in the "./airbus_dataset
  folder and run "./airbus_scripts/aircraft-detection-with-yolov8.ipynb". \
-Then, Put the output of the notebook in the following folder
+Then, put the output of the notebook in the following folder
 "./airbus_dataset/224x224_overlap28_percent0.3_/train" and "./airbus_dataset/224x224_overlap28_percent0.3_/val".
 
 ### Usage
