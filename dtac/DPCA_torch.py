@@ -71,12 +71,11 @@ class DPCA_Process():
         n = input_data.shape[0]
 
         norm_input = input_data - self.mean
-        self.projs = [[], [], []]
-        self.proj_vec = [[], [], []]
+        self.projs = [[], [], [], []]
+        self.proj_vec = [[], [], [], []]
         for i in range(dpca_dim):
             seg = self.singular_val_vec[i][2]
             start, end = seg * self.num_features, (seg+1) * self.num_features
-
             self.projs[seg].append(norm_input[:, start:end] @ self.singular_val_vec[i][1])
             self.proj_vec[seg].append(self.singular_val_vec[i][1])
         
@@ -419,6 +418,168 @@ def DistriburedPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
 
     dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/2), device)
     return dpca, singular_val_vec
+
+
+def DistriburedPCAEQ4(dvae_model, rep_dim, device, env='gym_fetch'):
+    ### Load dataset
+    dataset_dir = '/store/datasets/gym_fetch/'
+    if env == 'gym_fetch':
+        reach = torch.load(dataset_dir + 'reach.pt')
+        obs1 = reach[0][:, 0:3, :, :]
+        obs2 = reach[0][:, 3:6, :, :]
+    elif env == 'PickAndPlace':
+        pick = torch.load(dataset_dir + 'pnp_128_20011.pt')
+        ### center crop image
+        cropped_image_size = 112
+        pick[0] = center_crop_image(pick[0], cropped_image_size)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
+    elif env == 'Lift':
+        pick = torch.load('./lift_hardcode.pt')
+        cropped_image_size = 112
+        pick[0] = center_crop_image(pick[0], cropped_image_size)
+        obs1 = pick[0][:, 0:3, :, :]
+        obs2 = pick[0][:, 3:6, :, :]
+    elif env == 'cifar10':
+        batch_size = 1024
+        transform_train=transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+
+        transform_test=transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+
+        train_kwargs = {'batch_size': batch_size}
+        test_kwargs = {'batch_size': batch_size}
+        trainset = datasets.CIFAR10('./data', train=True, download=True, transform=transform_train)
+        testset = datasets.CIFAR10('./data', train=False, download=True, transform=transform_test)
+        train_loader = torch.utils.data.DataLoader(trainset,**train_kwargs)
+        test_loader = torch.utils.data.DataLoader(testset, **test_kwargs)
+    else: ### airbus dataset
+        loader = env
+
+    if env == 'gym_fetch' or env == 'PickAndPlace' or env == 'Lift':
+        index = np.arange(len(obs1))
+        batch = 512
+        n_batches = len(obs1) // batch
+        
+        Z = torch.zeros((len(obs1), rep_dim), device=device)
+        # invar = []
+
+        for i in range(n_batches):
+            b_idx = index[i * batch:(i + 1) * batch]
+            o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
+            o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
+
+            ### get middle representations
+            z1, _ = dvae_model.enc1(o1_batch)
+            z2, _ = dvae_model.enc2(o2_batch)
+            z1 = z1.detach()
+            z2 = z2.detach()
+            batch = z1.shape[0]
+
+            ### collect private and share representations
+            ### concatenate representations
+            z = torch.cat((z1, z2), dim=1)
+            Z[b_idx, :] = z
+
+        mean = Z.mean(axis=0)
+    elif env == 'cifar10':
+        data_point_num = trainset.__len__()
+        flag = 0
+        Z = torch.zeros((data_point_num, rep_dim), device=device)
+
+        for batch_idx, (x, labels) in enumerate(train_loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode data
+            with torch.no_grad():
+                x1 = torch.zeros(x.shape[0], x.shape[1], 32, 32).to(device)
+                x2 = torch.zeros(x.shape[0], x.shape[1], 32, 32).to(device)
+                x1[:, :, 8:, 8:] = x[:, :, 8:, 8:]
+                x1 += torch.randn(x1.shape).to(device) * 0.1
+                x2[:, :, :20, :20] = x[:, :, :20, :20] 
+                x2 += torch.randn(x2.shape).to(device) * 0.2
+                z1, _ = dvae_model.enc1(x1)
+                z2, _ = dvae_model.enc2(x2)
+                z1 = z1.detach()
+                z2 = z2.detach()
+                num_features = z1.shape[1] // 2
+                batch = z1.shape[0]
+
+                z = torch.cat((z1, z2), dim=1)
+                Z[flag:flag+batch, :] = z
+            flag = flag + batch
+        
+        mean = Z.mean(axis=0)
+        # print(Z.shape)
+        ### PCA for each segment
+        singular_val_vec = []
+        for seg in range(2): ### 2 segments: z1 z2
+            start, end = seg * int(rep_dim/2), (seg+1) * int(rep_dim/2)
+            seg_singular_val_vec, _ = PCA_np(Z[:, start:end], device)
+            for s, v in seg_singular_val_vec:
+                singular_val_vec.append( (s, v, seg) )
+        singular_val_vec.sort(key=lambda x: x[0], reverse=True)
+
+        dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/2), device)
+        return dpca, singular_val_vec
+    else:
+        data_point_num = loader.dataset.__len__()
+        flag = 0
+        Z = torch.zeros((data_point_num, rep_dim), device=device)
+
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+            cropped_image_size_w, cropped_image_size_h = 42, 56
+            cropped_image_size_w2 = 112 - cropped_image_size_w
+
+            ### encode data
+            with torch.no_grad():
+                x12 = x[:, :, :cropped_image_size_w, :]
+                x34 = x[:, :, cropped_image_size_w:, :]
+                x1 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+                x2 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+                x3 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+                x4 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+                x1 = x12[:, :, :, :cropped_image_size_h]
+                x2 = x12[:, :, :, cropped_image_size_h:]
+                x3 = x34[:, :, :, :cropped_image_size_h]
+                x4 = x34[:, :, :, cropped_image_size_h:]
+
+                # print(x1.shape, x2.shape, x3.shape, x4.shape)
+                z1, _ = dvae_model.enc1(x1)
+                z2, _ = dvae_model.enc2(x2)
+                z3, _ = dvae_model.enc3(x3)
+                z4, _ = dvae_model.enc4(x4)
+                z1 = z1.detach()
+                z2 = z2.detach()
+                z3 = z3.detach()
+                z4 = z4.detach()
+                batch = z1.shape[0]
+
+                z = torch.cat((z1, z2, z3, z4), dim=1)
+                Z[flag:flag+batch, :] = z
+            flag = flag + batch
+        
+        mean = Z.mean(axis=0)
+    ### PCA for each segment
+    singular_val_vec = []
+    for seg in range(4): ### 4 segments: z1 z2, z3 z4
+        start, end = seg * int(rep_dim/4), (seg+1) * int(rep_dim/4)
+        seg_singular_val_vec, _ = PCA(Z[:, start:end], device)
+        for s, v in seg_singular_val_vec:
+            singular_val_vec.append( (s, v, seg) )
+    singular_val_vec.sort(key=lambda x: x[0], reverse=True)
+
+    dpca = DPCA_Process(singular_val_vec, mean, int(rep_dim/4), device)
+    return dpca, singular_val_vec
+
 
 def JointPCA(dvae_model, rep_dim, device, env='gym_fetch'):
     ### Load dataset

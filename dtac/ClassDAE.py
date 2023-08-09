@@ -351,6 +351,89 @@ class ResE2D1NonSym(nn.Module):
         return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
+class ResE4D1(nn.Module):
+    def __init__(self, obs_shape1: tuple, obs_shape2: tuple, obs_shape3: tuple, obs_shape4: tuple, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_samples: int=4, n_res_blocks: int=3):
+        super().__init__()
+        self.enc1 = ResEncoder(obs_shape1, z_dim1, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc2 = ResEncoder(obs_shape2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc3 = ResEncoder(obs_shape3, z_dim3, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.enc4 = ResEncoder(obs_shape4, z_dim4, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.dec = ResDecoder((obs_shape1[0], obs_shape1[1] + obs_shape3[1], obs_shape1[2] + obs_shape3[2]), 
+                              (z_dim1 + z_dim2 + z_dim3 + z_dim4),
+                              n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+
+    def forward(self, obs1, obs2, obs3, obs4, random_bottle_neck=False):
+        z1, _ = self.enc1(obs1)
+        z2, _ = self.enc2(obs2)
+        z3, _ = self.enc3(obs3)
+        z4, _ = self.enc4(obs4)
+
+        obs12 = torch.cat((obs1, obs2), dim=3)
+        obs34 = torch.cat((obs3, obs4), dim=3)
+        obs = torch.cat((obs12, obs34), dim=2)
+        # print("obs shapes: ", obs.shape, obs12.shape, obs34.shape)
+
+        ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+        ### leave log_std unused. 
+        num_features = z1.shape[1] + z2.shape[1] + z3.shape[1] + z4.shape[1]
+        batch_size = z1.shape[0]
+
+        ### decode 
+        if random_bottle_neck:
+            # reduce the dimensionality of the data using dpca
+            # use PCA to reduce dimension
+            dim_p = torch.randint(8, int(num_features/2), (1,)).item()
+
+            s_1, v_1, mu_1 = data_pca(z1)
+            s_2, v_2, mu_2 = data_pca(z2)
+            s_3, v_3, mu_3 = data_pca(z3)
+            s_4, v_4, mu_4 = data_pca(z4)
+
+            # pick the indices of the top 1/2 singular values for s_1 and s_2 combined
+            s_1_2_3_4 = torch.cat((s_1,s_2, s_3, s_4), 0)
+            ind = torch.argsort(s_1_2_3_4, descending=True)
+            ind = ind[:dim_p]
+            ind_1 = ind[ind < s_1.shape[0]]
+            ind_2 = ind[torch.logical_and(ind >= s_1.shape[0], ind < (s_1.shape[0] + s_2.shape[0]))] - s_1.shape[0]
+            ind_3 = ind[torch.logical_and(ind >= (s_1.shape[0] + s_2.shape[0]), ind < (s_1.shape[0] + s_2.shape[0] + s_3.shape[0]))] - (s_1.shape[0] + s_2.shape[0])
+            ind_4 = ind[ind >= (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])] - (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])
+
+            # project z1 and z2 into corresponding subspace
+            z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+            z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+            z3_p = torch.matmul(z3 - mu_3, v_3[:,ind_3])
+            z4_p = torch.matmul(z4 - mu_4, v_4[:,ind_4])
+
+            # concatenate to form full z
+            # z_o = torch.cat((z1_p,z2_p), 1)
+
+            # project back the latent to full dim
+            z1 =  torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+            z2 =  torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+            z3 =  torch.matmul(z3_p, v_3[:,ind_3].T) + mu_3
+            z4 =  torch.matmul(z4_p, v_4[:,ind_4].T) + mu_4
+
+        cos_sim = torch.nn.CosineSimilarity()
+        cos_loss = torch.mean(cos_sim(z1, z2) + cos_sim(z1, z3) + cos_sim(z1, z4) + cos_sim(z2, z3) + cos_sim(z2, z4) + cos_sim(z3, z4))
+        z_sample = torch.cat((z1, z2, z3, z4), dim=1)
+
+        obs_dec = self.dec(z_sample)
+        # print("obs_dec shape: ", obs_dec.shape)
+        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        psnr = PSNR(obs_dec, obs)
+
+        ### Normalize
+        z_sample = z_sample - z_sample.mean(dim=0)
+
+        ### nuclear loss 
+        z_sample = z_sample / torch.norm(z_sample, p=2)
+        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+        ### weight parameters recommended by VIC paper: 25, 25, and 10
+        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, psnr
+
+
+
 class ResE2D1(nn.Module):
     def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, n_samples: int=4, n_res_blocks: int=3):
         super().__init__()

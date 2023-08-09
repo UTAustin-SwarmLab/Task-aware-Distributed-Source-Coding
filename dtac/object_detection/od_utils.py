@@ -8,7 +8,7 @@ import random
 import os
 
 from dtac.object_detection.yolov8_loss import Loss
-from dtac.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ
+from dtac.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ, DistriburedPCAEQ4
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -588,6 +588,83 @@ def get_bboxes_AE(
     AE.train()
     return all_pred_boxes, all_true_boxes
 
+def get_bboxes_AE4(
+    loader,
+    task_model,
+    AE,
+    joint:bool, 
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+    all_pred_boxes = []
+    all_true_boxes = []
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+    
+    cropped_image_size_w2 = 112 - cropped_image_size_w
+
+    for batch_idx, (x, labels) in enumerate(loader):
+        x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+        
+        labels = labels.to(device)
+
+        ### encode and decode data
+        with torch.no_grad():
+            x12 = x[:, :, :cropped_image_size_w, :]
+            x34 = x[:, :, cropped_image_size_w:, :]
+            x1 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+            x2 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+            x3 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+            x4 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+            x1 = x12[:, :, :, :cropped_image_size_h]
+            x2 = x12[:, :, :, cropped_image_size_h:]
+            x3 = x34[:, :, :, :cropped_image_size_h]
+            x4 = x34[:, :, :, cropped_image_size_h:]
+
+            
+            x_pred = AE(x1, x2, x3, x4)[0] # 3x112x112
+
+            if AE.training or task_model.training:
+                print(AE.training, task_model.training)
+                raise KeyError("VAE and task model should be in the training mode")
+        
+            x_pred = x_pred.clip(0, 1) * 255.0
+            x_pred = F.interpolate(x_pred, size=(448, 448)) ### resize to 448x448
+            predictions = task_model(x_pred)
+
+        batch_size = x.shape[0]
+        true_bboxes = cellboxes_to_boxes(labels)
+        bboxes = cellboxes_to_boxes(predictions)
+
+        for idx in range(batch_size):
+            nms_boxes = non_max_suppression(
+                bboxes[idx],
+                iou_threshold=iou_threshold,
+                threshold=threshold,
+                box_format=box_format,
+            )
+
+            for nms_box in nms_boxes:
+                all_pred_boxes.append([train_idx] + nms_box)
+
+            for box in true_bboxes[idx]:
+                # many will get converted to 0 pred
+                if box[1] > threshold:
+                    all_true_boxes.append([train_idx] + box)
+
+            train_idx += 1
+
+    AE.train()
+    return all_pred_boxes, all_true_boxes
+
 def encode_and_decode(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=True):
     if dpca is not None and not joint:
         z1, _ = VAE.enc1(obs1)
@@ -637,6 +714,26 @@ def encode_and_decodeEQ(obs1, obs2, obs, VAE, dpca, dpca_dim:int=0, joint:bool=T
         obs_rec = VAE.dec(recon_z).clip(0, 1)
     else:
         obs_rec = VAE(obs1, obs2, obs)[0][:, :, :, :].clip(0, 1)
+    return obs_rec
+
+def encode_and_decodeEQ4(obs1, obs2, obs3, obs4, obs, VAE, dpca, dpca_dim:int=0, joint:bool=True):
+    if dpca is not None and not joint:
+        z1, _ = VAE.enc1(obs1)
+        z2, _ = VAE.enc2(obs2)
+        z3, _ = VAE.enc3(obs3)
+        z4, _ = VAE.enc4(obs4)
+        z1 = z1.detach()
+        z2 = z2.detach()
+        z3 = z3.detach()
+        z4 = z4.detach()
+        z = torch.cat((z1, z2, z3, z4), dim=1)
+
+        recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
+        obs_rec = VAE.dec(recon_z).clip(0, 1)
+    elif dpca is not None and joint:
+        raise NotImplementedError
+    else:
+        raise NotImplementedError
     return obs_rec
 
 def AE_dpca(
@@ -730,7 +827,6 @@ def AE_dpca(
     AE.train()
 
     return results
-
 
 def AE_dpcaEQ(
     loader,
@@ -837,6 +933,104 @@ def AE_dpcaEQ(
 
         print(f"dpca_dim: {dpca_dim}, rep_dims: {rep_dims}, test_mean_avg_prec: {test_mean_avg_prec}")
         results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], test_mean_avg_prec.item()])
+
+    AE.train()
+
+    return results
+
+def AE_dpcaEQ4(
+    loader,
+    train_loader,
+    task_model,
+    AE,
+    rep_dim, 
+    joint:bool,
+    iou_threshold,
+    threshold,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cuda",
+    start = 0,
+    end = 1,
+    cropped_image_size_w = None, 
+    cropped_image_size_h = None
+):
+
+    # make sure model is in eval before get bboxes
+    task_model.eval()
+    AE.eval()
+    train_idx = 0
+    results = []
+
+    if not joint:
+        dpca, singular_val_vec = DistriburedPCAEQ4(AE, rep_dim, device=device, env=train_loader)
+        iter_dims = np.arange(start, end+1, 4) ### total dim
+        # iter_dims = [int(i*0.5) for i in iter_dims] ### 75% of the total dim = remove 1 share
+
+    for dpca_dim in iter_dims: 
+        all_pred_boxes = []
+        all_true_boxes = []
+
+        ### count importance priority of dimensions
+        rep_dims = [0, 0, 0, 0]
+        for i in range(dpca_dim):
+            seg = singular_val_vec[i][2]
+            rep_dims[seg] += 1
+
+        cropped_image_size_w2 = 112 - cropped_image_size_w
+
+        for batch_idx, (x, labels) in enumerate(loader):
+            x = x.to(device).type(torch.cuda.FloatTensor) / 255.0
+            labels = labels.to(device)
+
+            ### encode and decode data
+            with torch.no_grad():
+                x12 = x[:, :, :cropped_image_size_w, :]
+                x34 = x[:, :, cropped_image_size_w:, :]
+                x1 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+                x2 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w, cropped_image_size_h).to(device)
+                x3 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+                x4 = torch.zeros(x.shape[0], x.shape[1], cropped_image_size_w2, cropped_image_size_h).to(device)
+                x1 = x12[:, :, :, :cropped_image_size_h]
+                x2 = x12[:, :, :, cropped_image_size_h:]
+                x3 = x34[:, :, :, :cropped_image_size_h]
+                x4 = x34[:, :, :, cropped_image_size_h:]
+
+                if joint:
+                    raise NotImplementedError
+                elif not joint:
+                    x_ = encode_and_decodeEQ4(x1, x2, x3, x4, x, AE, dpca, dpca_dim=dpca_dim, joint=joint)
+
+                x_ = x_.clip(0, 1) * 255.0
+                x_ = F.interpolate(x_, size=(448, 448)) ### resize to 448x448
+                predictions = task_model(x_)
+
+            batch_size = x.shape[0]
+            true_bboxes = cellboxes_to_boxes(labels)
+            bboxes = cellboxes_to_boxes(predictions)
+
+            for idx in range(batch_size):
+                nms_boxes = non_max_suppression(
+                    bboxes[idx],
+                    iou_threshold=iou_threshold,
+                    threshold=threshold,
+                    box_format=box_format,
+                )
+
+                for nms_box in nms_boxes:
+                    all_pred_boxes.append([train_idx] + nms_box)
+
+                for box in true_bboxes[idx]:
+                    # many will get converted to 0 pred
+                    if box[1] > threshold:
+                        all_true_boxes.append([train_idx] + box)
+
+                train_idx += 1
+
+        test_mean_avg_prec = mean_average_precision(all_pred_boxes, all_true_boxes, iou_threshold=0.5, box_format="midpoint")
+
+        print(f"dpca_dim: {dpca_dim}, rep_dims: {rep_dims}, test_mean_avg_prec: {test_mean_avg_prec}")
+        results.append([dpca_dim, rep_dims[0], rep_dims[1], rep_dims[2], rep_dims[3], test_mean_avg_prec.item()])
 
     AE.train()
 
