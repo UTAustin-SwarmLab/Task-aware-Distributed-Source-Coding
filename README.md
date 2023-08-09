@@ -1,7 +1,7 @@
 # dtac-dev
 The is the repo of **D**istributed **T**ask-**a**ware **C**ompression (dtac). 
 
-Link to paper: [TBD](Task-aware Distributed Source Coding under Dynamic Bandwidth)
+Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](https://arxiv.org/abs/2305.15523)
 ## Table of Contents
 - [TLDR](#TLDR)
 - [Results](#results)
@@ -21,14 +21,9 @@ Efficient compression of correlated data is essential to minimize communication 
 </details>
 
 ## Results
-<details>
-<summary>Click to expand</summary>
-
 ![results](./plots/results.png "results")
-
 **Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
 **Bottom:** Distribution of total available bandwidth (latent space) among the two views for NDPCA (ours). The unequal allocation highlights the difference in the importance of the views for a given task.
-</details>
 
 ## Installation
 ### Packages
@@ -110,5 +105,12 @@ See the -args examples in the main function of [dpca_od_awaDAE.py](airbus_script
 ## Citation
 If you find this repo useful, please cite our paper:
 ```
-
+@misc{li2023taskaware,
+      title={Task-aware Distributed Source Coding under Dynamic Bandwidth}, 
+      author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
+      year={2023},
+      eprint={2305.15523},
+      archivePrefix={arXiv},
+      primaryClass={cs.IT}
+}
 ```
