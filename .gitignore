@@ -147,3 +147,5 @@ results.csv
 /airbus_scripts/runs/*
 cifar10_scripts/data/*
 *.mp4
+
+!requirements.txt

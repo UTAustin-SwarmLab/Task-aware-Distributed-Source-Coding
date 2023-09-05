@@ -202,7 +202,7 @@ if __name__ == "__main__":
     ap.add_argument("--scale_y", required=True, type=float, help="scale_y - scale by height => define height of the top left image")
     ap.add_argument("--min_area", default=200, type=int, help="min area of box after augmentation we will keep")
     ap.add_argument("--min_vi", default=0.1, type=float, help="min area ratio of box after/before augmentation we will keep")
-    ap.add_argument("--path", default=0.1, type=float, help="output path to store augmented images and labels")
+    # ap.add_argument("--path", default=0.1, type=float, help="output path to store augmented images and labels")
     args = vars(ap.parse_args())
 
     # width and height of mosaic-augmented image
@@ -223,13 +223,20 @@ if __name__ == "__main__":
         os.makedirs('./augmentation/mosaic_images')     
 
     # output dir for augmented images
-    output_image_dir = args.path
+    args["path"] = '../airbus_dataset/224x224_overlap28_percent0.3_/'
+    output_image_dir = args["path"]
 
     if not os.path.exists('./augmentation/mosaic_labels'):  
         os.makedirs('./augmentation/mosaic_labels')    
 
     # output dir for new boxes
-    output_label_dir = args.path
+    output_label_dir = args["path"]
+    
+    if not os.path.exists(output_image_dir):
+        os.makedirs(output_image_dir)
+
+    if not os.path.exists(output_label_dir):
+        os.makedirs(output_label_dir)
 
     """
         Note: Image and label have the same name. For example: image_1.jpeg - image_1.txt

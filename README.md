@@ -53,7 +53,7 @@ Then, put the output of the notebook in the following folder
 "./airbus_dataset/224x224_overlap28_percent0.3_/train" and "./airbus_dataset/224x224_overlap28_percent0.3_/val". \
 Finally, augment the dataset with mosaic at "./mosaic/":
 ```bash
-python main.py --width 224 --height 224 --scale_x 0.4 --scale_y 0.6 --min_area 500 --min_vi 0.3 --path
+python main.py --width 224 --height 224 --scale_x 0.4 --scale_y 0.6 --min_area 500 --min_vi 0.3
 ```
 
 ## Usage
