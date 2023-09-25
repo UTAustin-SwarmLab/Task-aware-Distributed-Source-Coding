@@ -42,6 +42,10 @@ def random_crop_savebboxes(image_name, image_dir, label_dir, expected_h,
     image_path, label_path, _ =  utils.preprocess(image_name, image_dir, label_dir)
 
     (bboxes, class_labels) = utils.read_label(label_path)
+    bboxess = bboxes.copy()
+    for i, bbox in enumerate(bboxess):
+        bboxes[i][2] = bbox[2] - 0.01
+        bboxes[i][3] = bbox[3] - 0.01
 
     transform = A.Compose([A.RandomResizedCrop(expected_h, expected_w)],     
                            bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels'], min_area=min_area, min_visibility=min_visibility))   # height, width
@@ -181,6 +185,8 @@ def mosaic(image_file_list, image_dir, label_dir, output_image_dir,
     label_store_path = os.path.sep.join([output_label_dir, 'mo_' + image_file_list[0].split('.')[0] + '_' + image_file_list[1].split('.')[0] + '_' + image_file_list[2].split('.')[0] + '_' + image_file_list[3].split('.')[0] + '.txt'])
     
     # save the augmented image and labels (bounding boxes)
+    print("save image: ", image_store_path)
+    print("save label: ", label_store_path)
     utils.save_img(new_img, image_store_path )
     utils.save_label(new_bboxes, new_class_labels, label_store_path)
 
@@ -192,7 +198,8 @@ def mosaic(image_file_list, image_dir, label_dir, output_image_dir,
 if __name__ == "__main__":
 
     '''
-    python main.py --width 224 --height 224 --scale_x 0.4 --scale_y 0.6 --min_area 500 --min_vi 0.3 --path 
+    python main.py --width 224 --height 224 --scale_x 0.4 --scale_y 0.6 --min_area 500 --min_vi 0.3
+    python main.py --width 224 --height 224 --scale_x 0.5 --scale_y 0.5 --min_area 500 --min_vi 0.3
     '''
 
     ap = argparse.ArgumentParser()
@@ -223,7 +230,7 @@ if __name__ == "__main__":
         os.makedirs('./augmentation/mosaic_images')     
 
     # output dir for augmented images
-    args["path"] = '../airbus_dataset/224x224_overlap28_percent0.3_/'
+    args["path"] = './augmentation/mosaic_images' # '../airbus_dataset/224x224_overlap28_percent0.3_/'
     output_image_dir = args["path"]
 
     if not os.path.exists('./augmentation/mosaic_labels'):  
@@ -242,8 +249,10 @@ if __name__ == "__main__":
         Note: Image and label have the same name. For example: image_1.jpeg - image_1.txt
     """
     print('Processing...')
-    image_dir = '../airbus_dataset/224x224_overlap28_percent0.3/train/images'
-    label_dir = '../airbus_dataset/224x224_overlap28_percent0.3/train/labels'
+    # image_dir = '../airbus_dataset/224x224_overlap28_percent0.3/train/images'
+    # label_dir = '../airbus_dataset/224x224_overlap28_percent0.3/train/labels'
+    image_dir = '../cam1_crop2/img'
+    label_dir = '../cam1_crop2/annotations'
 
     # get a list of all images
     list_image_names = os.listdir(image_dir)    

@@ -147,5 +147,7 @@ results.csv
 /airbus_scripts/runs/*
 cifar10_scripts/data/*
 *.mp4
+cam1_crop2/*
+wildtrack/*
 
 !requirements.txt

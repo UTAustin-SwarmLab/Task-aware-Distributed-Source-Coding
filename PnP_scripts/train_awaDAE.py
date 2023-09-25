@@ -153,10 +153,12 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     o2_batch = center_crop_image(o2_batch, cropped_image_size)
                     # obs_pred = center_crop_image(obs_pred, cropped_image_size)
 
-                if "Joint" not in vae_model and "BasedVAE" in vae_model:
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
-                elif "Joint" in vae_model:
+                if "Joint" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
+                elif "Sep" in vae_model:
+                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch)
+                elif "Joint" not in vae_model:
+                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
 
                 task_output = task_model(obs_pred.clip(0, 1))[0]
                 obs = torch.cat((o1_batch, o2_batch), dim=1)
@@ -220,7 +222,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 if __name__ == "__main__":
     """        
     python train_awaDAE.py --dataset PickAndPlace --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 10000.0 --beta_kl 25.0 --beta_task 100 --z_dim 64 --batch_size 128 --seed 0 --cross_penalty 10.0 --vae_model CNNBasedVAE --rand_crop True
-    python train_awaDAE.py --dataset Lift --device 0 --lr 1e-4 --num_epochs 3000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 96 --batch_size 512 --seed 0 --cross_penalty 0.0 --vae_model ResBasedVAE --rand_crop True -p True
+    python train_awaDAE.py --dataset Lift --device 7 --lr 1e-4 --num_epochs 2000 --beta_rec 0.0 --beta_kl 0.0 --beta_task 500 --z_dim 6 --batch_size 512 --seed 0 --cross_penalty 0.0 --vae_model JointResBasedVAE --rand_crop True -p True
     """
 
     model_path = './models/'

@@ -196,7 +196,7 @@ if __name__ == '__main__':
     DPCA_tf = args.dpca # True False
     min_dpca_dim = 4
     max_dpca_dim = 24
-    step_dpca_dim = 4
+    step_dpca_dim = 2
     if DPCA_tf:
         print("Running DPCA.")
     else:
@@ -263,7 +263,7 @@ if __name__ == '__main__':
 
     if DPCA_tf:
         eval_results = []
-        for dpca_dim in range(max_dpca_dim, min_dpca_dim-1, -step_dpca_dim):
+        for dpca_dim in [6, 8, 12, 16, 20, 24]:# range(max_dpca_dim, min_dpca_dim-1, -step_dpca_dim):
             mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims = evaluate(act_model, dvae_model, device, dataset, vae_model, DPCA_tf, dpca_dim)
             eval_results.append([dpca_dim, mean_ep_reward, best_ep_reward, std_ep_reward, success_rate, rep_dims[0], rep_dims[1], rep_dims[2]])
 
