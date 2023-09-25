@@ -21,7 +21,7 @@ Efficient compression of correlated data is essential to minimize communication 
 </details>
 
 ## Results
-![results](./plots/results.png "results")
+![results](./plots/results_.pdf "results")
 **Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
 **Bottom:** Distribution of total available bandwidth (latent space) among the two views for NDPCA (ours). The unequal allocation highlights the difference in the importance of the views for a given task.
 
@@ -107,7 +107,7 @@ If you find this repo useful, please cite our paper:
 ```
 @inproceedings{anonymous2023taskaware,
       title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
-      author={Anonymous},
+      author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
       booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
       year={2023},
       url={https://openreview.net/forum?id=1A4ZqTmnye}
