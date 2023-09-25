@@ -21,10 +21,7 @@ Efficient compression of correlated data is essential to minimize communication 
 </details>
 
 ## Results
-<!-- ![results](./plots/results_.pdf "result") -->
-<p align="center">
-<img src="./plots/results_.pdf" width=100% height=100% 
-class="center"> </p>
+![results](./plots/results.png "result")
 **Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
 **Bottom:** Distribution of total available bandwidth (latent space) among the two views for NDPCA (ours). The unequal allocation highlights the difference in the importance of the views for a given task.
 

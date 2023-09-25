@@ -149,5 +149,7 @@ cifar10_scripts/data/*
 *.mp4
 cam1_crop2/*
 wildtrack/*
+plots/*
+!plots/results.png
 
 !requirements.txt
