@@ -105,7 +105,7 @@ See the -args examples in the main function of [dpca_od_awaDAE.py](airbus_script
 ## Citation
 If you find this repo useful, please cite our paper:
 ```
-@inproceedings{anonymous2023taskaware,
+@inproceedings{Li2023taskaware,
       title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
       author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
       booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
