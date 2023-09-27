@@ -104,7 +104,7 @@ See the -args examples in the main function of [dpca_od_awaDAE.py](airbus_script
 
 ## Citation
 If you find this repo useful, please cite our paper:
-```
+<!-- ```
 @inproceedings{Li2023taskaware,
       title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
       author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
@@ -113,7 +113,7 @@ If you find this repo useful, please cite our paper:
       url={https://openreview.net/forum?id=EJo8lMC5cY}
 }
 ```
-or 
+or  -->
 ```
 @misc{li2023taskaware,
       title={Task-aware Distributed Source Coding under Dynamic Bandwidth}, 

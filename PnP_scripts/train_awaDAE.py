@@ -117,12 +117,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     if histepoch > 0:
         DVAE_awa.load_state_dict(torch.load(model_path + f'/DVAE_awa-{histepoch}.pth'))
 
-    # _ = ResE2D1((3, cropped_image_size, cropped_image_size), (3, cropped_image_size, cropped_image_size), z_dim, z_dim, 4, 1).to(device)
-    # def count_parameters(model):
-    #     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    # print("ResE1D1 trainable parameters: ", count_parameters(DVAE_awa))
-    # print("ResE2D1 trainable parameters: ", count_parameters(_))
-    # exit(0)
     DVAE_awa = DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
 
@@ -131,7 +125,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     print("Random PCA: ", randpca)
 
     cur_iter = 0
-    # torch.autograd.set_detect_anomaly(True)
     for ep in range(histepoch, num_epochs+histepoch):
         ep_loss = []
         np.random.shuffle(index)
@@ -139,7 +132,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             b_idx = index[i * batch_size:(i + 1) * batch_size]
             o1_batch = torch.tensor(obs1[b_idx], device=device).float() / 255
             o2_batch = torch.tensor(obs2[b_idx], device=device).float() / 255
-            # a_gt_batch = torch.tensor(a_gt[b_idx], device=device).float()
             a_gt_batch = a_gt[b_idx].clone().detach().to(device).float()
 
             if dataset == "PickAndPlace" or dataset == "Lift":
@@ -151,7 +143,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     ### center crop
                     o1_batch = center_crop_image(o1_batch, cropped_image_size)
                     o2_batch = center_crop_image(o2_batch, cropped_image_size)
-                    # obs_pred = center_crop_image(obs_pred, cropped_image_size)
 
                 if "Joint" in vae_model:
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
@@ -165,10 +156,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
                 ### learn from task model or dataset
                 action_gt = a_gt_batch
-                # action_gt = task_model(obs)[0]
-                # action_gt[:, 3] = (100*action_gt[:, 3]).clip(-1, 1).detach()
-                # action_gt = action_gt.detach()
-
                 task_loss = torch.mean((action_gt - task_output) ** 2)
                 loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
                 # assert not torch.isnan(loss).any(), "loss is nan"

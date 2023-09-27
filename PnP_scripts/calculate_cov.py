@@ -117,10 +117,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             z2, _ = DVAE_awa.enc2(o2_batch)
             z = torch.cat((z1, z2), dim=1)
             b_idx = index[i * batch_size:(i + 1) * batch_size]
-            # print("b_idx: ", b_idx)
-            # print("z shape: ", z.shape)
-            # print("Z shape: ", Z[b_idx, :].shape)
-            # input()
             Z[b_idx, :] = z.cpu().detach()
         else:
             raise NotImplementedError

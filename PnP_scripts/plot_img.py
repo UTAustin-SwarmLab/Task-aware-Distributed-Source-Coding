@@ -132,17 +132,6 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
                     obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
                 obs_pred = obs_pred.clip(0, 1)
                 task_output = task_model(obs_pred)[0]
-            elif dataset == "gym_fetch": # gym_fetch
-                raise NotImplementedError
-                if "Joint" not in vae_model and "BasedVAE" in vae_model:
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(o1_batch, o2_batch, random_bottle_neck=randpca)
-                elif "Joint" in vae_model:
-                    obs_pred, loss_rec, kl1, kl2, loss_cor, psnr = DVAE_awa(torch.cat((o1_batch, o2_batch), dim=1))
-
-                task_output = task_model(obs_pred.clip(0, 1))[0]
-                action_gt = torch.tensor(action[b_idx], device=device).float()
-                task_loss = torch.mean((action_gt - task_output) ** 2)
-                loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
             else:
                 raise NotImplementedError
 

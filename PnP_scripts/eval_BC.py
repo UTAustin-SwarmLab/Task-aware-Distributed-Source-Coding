@@ -47,10 +47,8 @@ def encode_and_decode(obs, VAE, dpca, dpca_dim:int=0):
             z1_share = z1[:, num_features:]
             z2_share = z2[:, num_features:]
             z = torch.cat((z1_private, z1_share, z2_private), dim=1)
-            
             recon_z = dpca.LinearEncDec(z, dpca_dim=dpca_dim)
 
-            # z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:], recon_z[:, num_features:2*num_features]), dim=1)
             z_sample = torch.cat((recon_z[:, :num_features], recon_z[:, num_features:2*num_features], recon_z[:, 2*num_features:]), dim=1)
             obs_rec = VAE.dec(z_sample).clip(0, 1)
         else:
