@@ -110,7 +110,7 @@ If you find this repo useful, please cite our paper:
       author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
       booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
       year={2023},
-      url={https://openreview.net/forum?id=1A4ZqTmnye}
+      url={https://openreview.net/forum?id=EJo8lMC5cY}
 }
 ```
 or 
