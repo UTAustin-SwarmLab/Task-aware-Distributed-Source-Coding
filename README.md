@@ -1,7 +1,7 @@
 # dtac-dev
 The is the repo of **D**istributed **T**ask-**a**ware **C**ompression (dtac). 
 
-Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](https://arxiv.org/abs/2305.15523)
+Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth]([https://arxiv.org/abs/2305.15523](https://openreview.net/forum?id=1A4ZqTmnye))
 ## Table of Contents
 - [TLDR](#TLDR)
 - [Results](#results)
@@ -12,7 +12,7 @@ Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](ht
 - [Citation](#citation)
 
 ## TLDR
-We design a distributed compression framework which learns low-rank task representations and efficiently distributes bandwidth among sensors to provide a trade-off between performance and bandwidth.
+We design a distributed compression framework that learns low-rank task representations and efficiently distributes bandwidth among sensors to provide a trade-off between performance and bandwidth.
 
 ## Abstract
 <details>
@@ -104,23 +104,12 @@ See the -args examples in the main function of [dpca_od_awaDAE.py](airbus_script
 
 ## Citation
 If you find this repo useful, please cite our paper:
-<!-- ```
-@inproceedings{Li2023taskaware,
-      title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
-      author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
-      booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-      year={2023},
-      url={https://openreview.net/forum?id=EJo8lMC5cY}
-}
 ```
-or  -->
-```
-@misc{li2023taskaware,
-      title={Task-aware Distributed Source Coding under Dynamic Bandwidth}, 
-      author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
-      year={2023},
-      eprint={2305.15523},
-      archivePrefix={arXiv},
-      primaryClass={cs.IT}
+@inproceedings{li2023taskaware,
+  title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
+  author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi Pari and ufuk topcu and Sandeep P. Chinchali and Hyeji Kim},
+  booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
+  year={2023},
+  url={https://openreview.net/forum?id=1A4ZqTmnye}
 }
 ```
