@@ -1,7 +1,7 @@
 # dtac-dev
 The is the repo of **D**istributed **T**ask-**a**ware **C**ompression (dtac). 
 
-Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth]([https://arxiv.org/abs/2305.15523](https://openreview.net/forum?id=1A4ZqTmnye))
+Link to paper: [Task-aware Distributed Source Coding under Dynamic Bandwidth](https://openreview.net/forum?id=1A4ZqTmnye)
 ## Table of Contents
 - [TLDR](#TLDR)
 - [Results](#results)
