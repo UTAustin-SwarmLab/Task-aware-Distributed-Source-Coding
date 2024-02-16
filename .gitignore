@@ -151,5 +151,5 @@ cam1_crop2/*
 wildtrack/*
 plots/*
 !plots/results.png
-!plots/TaskawareDistributedSouceCodingNeurips.png
+!plots/NDPCA_system_graph.png
 !requirements.txt
