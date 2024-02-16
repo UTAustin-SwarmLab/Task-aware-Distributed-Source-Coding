@@ -151,5 +151,5 @@ cam1_crop2/*
 wildtrack/*
 plots/*
 !plots/results.png
-
+!plots/TaskawareDistributedSouceCodingNeurips.png
 !requirements.txt
