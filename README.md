@@ -21,7 +21,7 @@ Efficient compression of correlated data is essential to minimize communication 
 </details>
 
 ### System Overview
-![NDPCA_system_graph](./plots/NDPCA_system_graph.png "NDPCA_system_graph")
+![NDPCA_system_graph](./plots/SystemGraph.png "NDPCA_system_graph")
 **Task-aware distributed source coding with NDPCA:**
 $X_1, \dots, X_k$ are correlated data sources. Neural encoders $E_1, \dots, E_k$ independently compress data to latent representations $Z_1, \dots, Z_k$. The proposed DPCA module, which is a linear matrix, allocates the bandwidth of sources based on the importance of the task $\Phi$.
 - The framework uses neural encoders and their corresponding neural decoder to minimize the task loss, by measuring the task-performance on the reconstructed data, $\phi(\hat{X})$, and on uncompressed data, $\phi(X)$.
