@@ -20,6 +20,13 @@ We design a distributed compression framework which learns low-rank task represe
 Efficient compression of correlated data is essential to minimize communication overload in multi-sensor networks. In such networks, each sensor independently compresses the data and transmits them to a central node due to limited communication bandwidth. A decoder at the central node decompresses and passes the data to a pre-trained machine learning-based task to generate the final output. Thus, it is important to compress features that are relevant to the task. Additionally, the final performance depends heavily on the total available bandwidth. In practice, it is common to encounter varying availability in bandwidth, and higher bandwidth results in better performance of the task. We design a novel distributed compression framework composed of independent encoders and a joint decoder, which we call neural distributed principal component analysis (NDPCA). NDPCA flexibly compresses data from multiple sources to any available bandwidth with a single model, reducing computing and storage overhead. NDPCA achieves this by learning low-rank task representations and efficiently distributing bandwidth among sensors, thus providing a graceful trade-off between performance and bandwidth. Experiments show that NDPCA improves the success rate of multi-view robotic arm manipulation by 9% and the accuracy of object detection tasks on satellite imagery by 14% compared to an autoencoder with uniform bandwidth allocation.
 </details>
 
+### System Overview
+![system](./plots/Task-awareDistributedSouceCodingNeurips.png "system")
+**Task-aware distributed source coding with NDPCA:**
+$X_1, \dots, X_k$ are correlated data sources. Neural encoders $E_1, \dots, E_k$ independently compress data to latent representations $Z_1, \dots, Z_k$. The proposed DPCA module, which is a linear matrix, allocates the bandwidth of sources based on the importance of the task $\Phi$.
+- The framework uses neural encoders and their corresponding neural decoder to minimize the task loss, by measuring the task-performance on the reconstructed data, $\phi(\hat{X})$, and on uncompressed data, $\phi(X)$.
+- The neural autoencoders are encouraged to generate low-rank representations $Z$, which helps achieve a systematic trade-off between latent dimension and performance with a single model.
+
 ## Results
 ![results](./plots/results.png "result")
 **Top:** Performance Comparison for 3 different tasks. Our method achieves equal or higher performance than other methods. 
@@ -104,23 +111,12 @@ See the -args examples in the main function of [dpca_od_awaDAE.py](airbus_script
 
 ## Citation
 If you find this repo useful, please cite our paper:
-<!-- ```
+```bibtex
 @inproceedings{Li2023taskaware,
       title={Task-aware Distributed Source Coding under Dynamic Bandwidth},
       author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
       booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
       year={2023},
       url={https://openreview.net/forum?id=EJo8lMC5cY}
-}
-```
-or  -->
-```
-@misc{li2023taskaware,
-      title={Task-aware Distributed Source Coding under Dynamic Bandwidth}, 
-      author={Po-han Li and Sravan Kumar Ankireddy and Ruihan Zhao and Hossein Nourkhiz Mahjoub and Ehsan Moradi-Pari and Ufuk Topcu and Sandeep Chinchali and Hyeji Kim},
-      year={2023},
-      eprint={2305.15523},
-      archivePrefix={arXiv},
-      primaryClass={cs.IT}
 }
 ```
